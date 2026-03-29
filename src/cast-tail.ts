@@ -1,39 +1,33 @@
 #!/usr/bin/env bun
 import { openSync, readSync } from "fs"
 
-const file = process.argv[2]
-if (!file) {
-  console.error("Usage: cast-tail <file.cast>")
-  process.exit(1)
-}
+export async function runTail(file: string): Promise<never> {
+  const fd = openSync(file, "r")
+  let pos = 0
+  let buf = ""
+  let headerSkipped = false
+  let caughtUp = false
 
-const fd = openSync(file, "r")
-let pos = 0
-let buf = ""
-let headerSkipped = false
-let caughtUp = false
-
-function readChunk(): string {
-  const chunk = Buffer.alloc(4096)
-  const n = readSync(fd, chunk, 0, chunk.length, pos)
-  if (n === 0) return ""
-  pos += n
-  return chunk.toString("utf8", 0, n)
-}
-
-function processLine(line: string) {
-  if (!line.trim()) return
-  if (!headerSkipped) {
-    headerSkipped = true
-    return
+  function readChunk(): string {
+    const chunk = Buffer.alloc(4096)
+    const n = readSync(fd, chunk, 0, chunk.length, pos)
+    if (n === 0) return ""
+    pos += n
+    return chunk.toString("utf8", 0, n)
   }
-  try {
-    const [, , data] = JSON.parse(line)
-    process.stdout.write(data)
-  } catch {}
-}
 
-async function run() {
+  function processLine(line: string) {
+    if (!line.trim()) return
+    if (!headerSkipped) {
+      headerSkipped = true
+      return
+    }
+    try {
+      const [, , data] = JSON.parse(line)
+      process.stdout.write(data)
+    } catch {}
+  }
+
   while (true) {
     const chunk = readChunk()
     if (chunk) {
@@ -51,4 +45,12 @@ async function run() {
   }
 }
 
-run()
+// Auto-start when run directly (backwards compatibility)
+if (import.meta.main) {
+  const file = process.argv[2]
+  if (!file) {
+    console.error("Usage: cast-tail <file.cast>")
+    process.exit(1)
+  }
+  runTail(file)
+}

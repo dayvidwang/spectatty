@@ -6,9 +6,9 @@
   "license": "MIT",
   "keywords": ["mcp", "terminal", "pty", "headless", "xterm", "model-context-protocol"],
   "bin": {
-    "pty-mcp": "src/server.ts"
+    "pty-mcp": "src/cli.ts"
   },
-  "files": ["src/server.ts", "src/terminal.ts", "src/renderer.ts", "src/pty.ts", "src/runtime.ts", "assets/", "README.md"],
+  "files": ["src/cli.ts", "src/server.ts", "src/cast-tail.ts", "src/terminal.ts", "src/renderer.ts", "src/pty.ts", "src/runtime.ts", "assets/", "README.md"],
   "scripts": {
     "start": "bun src/server.ts",
     "dev": "bun --watch src/server.ts",

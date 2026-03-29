@@ -320,5 +320,12 @@ server.tool(
 
 // --- Start ---
 
-const transport = new StdioServerTransport()
-await server.connect(transport)
+export async function startServer(): Promise<void> {
+  const transport = new StdioServerTransport()
+  await server.connect(transport)
+}
+
+// Auto-start when run directly (backwards compatibility)
+if (import.meta.main) {
+  await startServer()
+}
