@@ -161,7 +161,6 @@ export class HeadlessTerminal {
     return this._exitPromise
   }
 
-  // Get plain text content of the screen
   getText(): string {
     const buffer = this.xterm.buffer.active
     const base = buffer.viewportY
@@ -175,7 +174,6 @@ export class HeadlessTerminal {
     return lines.join("\n")
   }
 
-  // Get the full cell grid with color/attribute info
   getCellGrid(theme?: Theme): CellInfo[][] {
     const buffer = this.xterm.buffer.active
     const base = buffer.viewportY
@@ -243,7 +241,6 @@ export class HeadlessTerminal {
     return type === "fg" ? t.fg : t.bg
   }
 
-  // Get HTML representation via serialize addon
   getHTML(): string {
     return this.serialize.serializeAsHTML()
   }

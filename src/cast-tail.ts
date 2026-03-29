@@ -137,13 +137,3 @@ export async function runTail(file: string): Promise<never> {
     }
   }
 }
-
-// Auto-start when run directly (backwards compatibility)
-if (import.meta.main) {
-  const file = process.argv[2]
-  if (!file) {
-    console.error("Usage: cast-tail <file.cast>")
-    process.exit(1)
-  }
-  runTail(file)
-}

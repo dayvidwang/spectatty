@@ -4,10 +4,6 @@ import { generateFrames } from "./frame-generator"
 import type { FrameGenOptions } from "./frame-generator"
 import { readdirSync, existsSync } from "fs"
 
-export interface GifOptions extends FrameGenOptions {
-  // All FrameGenOptions (cols, rows, maxDelay, theme, chrome, etc.)
-}
-
 /** Find `agg` binary — checks PATH then common mise install locations. */
 function findAgg(): string | null {
   const fromPath = Bun.which("agg")
@@ -35,7 +31,7 @@ function findAgg(): string | null {
 export async function castToGif(
   inputPath: string,
   outputPath: string,
-  opts: GifOptions = {},
+  opts: FrameGenOptions = {},
 ): Promise<void> {
   const agg = findAgg()
   if (agg) {
