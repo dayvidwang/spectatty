@@ -20,6 +20,9 @@ let nextId = 1
 const MAX_ATTACH_BUFFER = 512 * 1024 // 512KB ring buffer per session
 const attachServers = new Map<string, { server: NetServer; ctrlServer: NetServer; clients: Set<NetSocket>; buffer: Buffer[]; bufferSize: number }>()
 
+// Per-session cleanup functions — called by terminal_kill or natural exit, whichever fires first
+const sessionCleanup = new Map<string, () => void>()
+
 // Track whether user has typed via attach since last screenshot
 const userInputPending = new Set<string>()
 
@@ -106,7 +109,7 @@ server.tool(
 
     // Buffer PTY output and broadcast to attached clients
     // bun-pty fires onData with UTF-8 decoded strings — encode back to UTF-8 bytes for the socket
-    terminal.onData((data) => {
+    const unsubscribeOnData = terminal.onData((data) => {
       const chunk = Buffer.from(data, "utf8")
       attachBuffer.push(chunk)
       attachBufferSize += chunk.length
@@ -144,10 +147,13 @@ server.tool(
 
     attachServers.set(id, { server: socketServer, ctrlServer, clients: attachClients, buffer: attachBuffer, bufferSize: attachBufferSize })
 
-    // Auto-cleanup when the PTY exits naturally (e.g. user types `exit`)
-    // Without this, sessions map + xterm scrollback + attach sockets leak indefinitely
-    terminal.waitForExit().then(() => {
-      if (!sessions.has(id)) return // already killed via terminal_kill
+    // Shared cleanup — called by either natural exit or terminal_kill (whichever fires first)
+    let cleanedUp = false
+    const cleanupSession = () => {
+      if (cleanedUp) return
+      cleanedUp = true
+      sessionCleanup.delete(id)
+      unsubscribeOnData()
       terminal.destroy()
       sessions.delete(id)
       tapeLogs.delete(id)
@@ -158,10 +164,15 @@ server.tool(
         attach.server.close()
         attach.ctrlServer.close()
         attachServers.delete(id)
-        unlinkSync(socketPathForSession(id))
-        unlinkSync(controlSocketPathForSession(id))
+        try { unlinkSync(socketPathForSession(id)) } catch {}
+        try { unlinkSync(controlSocketPathForSession(id)) } catch {}
       }
-    }).catch(() => {})
+    }
+    sessionCleanup.set(id, cleanupSession)
+
+    // Auto-cleanup when the PTY exits naturally (e.g. user types `exit`)
+    // Without this, sessions map + xterm scrollback + attach sockets leak indefinitely
+    terminal.waitForExit().then(cleanupSession).catch(() => {})
 
     // Initialize tape log for this session
     tapeLogs.set(id, [{
@@ -449,20 +460,10 @@ server.tool(
     sessionId: z.string().describe("Terminal session ID"),
   },
   async ({ sessionId }) => {
-    const terminal = getSession(sessionId)
+    getSession(sessionId) // validate session exists
     tapeLogs.get(sessionId)?.push({ type: "kill", sessionId, t: Date.now() })
-    terminal.destroy()
-    sessions.delete(sessionId)
-    tapeLogs.delete(sessionId)
-    const attach = attachServers.get(sessionId)
-    if (attach) {
-      for (const c of attach.clients) c.destroy()
-      attach.server.close()
-      attach.ctrlServer.close()
-      attachServers.delete(sessionId)
-      await unlink(socketPathForSession(sessionId)).catch(() => {})
-      await unlink(controlSocketPathForSession(sessionId)).catch(() => {})
-    }
+    const cleanup = sessionCleanup.get(sessionId)
+    if (cleanup) cleanup()
 
     return {
       content: [{ type: "text" as const, text: `Killed session ${sessionId}` }],
@@ -525,6 +526,48 @@ server.tool(
 )
 
 server.tool(
+  "terminal_mouse",
+  "Send a mouse event to a terminal session. Useful for clicking buttons in TUI applications, moving the cursor, or dragging. Coordinates are 1-based column/row positions within the terminal viewport.",
+  {
+    sessionId: z.string().describe("Terminal session ID"),
+    action: z.enum(["click", "move", "down", "up"]).describe("Mouse action: click (press+release), down (press only), up (release only), move (motion without button)"),
+    x: z.number().describe("Column position (1-based)"),
+    y: z.number().describe("Row position (1-based)"),
+    button: z.enum(["left", "middle", "right"]).optional().describe("Mouse button (default: left). Ignored for move."),
+  },
+  async ({ sessionId, action, x, y, button }) => {
+    const terminal = getSession(sessionId)
+
+    // SGR mouse encoding: \x1b[<Cb;Cx;CyM (press) / \x1b[<Cb;Cx;Cym (release)
+    // Button codes: 0=left, 1=middle, 2=right, 32=motion
+    const buttonCode = action === "move" ? 32 : (button === "right" ? 2 : button === "middle" ? 1 : 0)
+    const col = Math.max(1, Math.round(x))
+    const row = Math.max(1, Math.round(y))
+
+    if (action === "click") {
+      terminal.write(`\x1b[<${buttonCode};${col};${row}M`)
+      terminal.write(`\x1b[<${buttonCode};${col};${row}m`)
+    } else if (action === "down") {
+      terminal.write(`\x1b[<${buttonCode};${col};${row}M`)
+    } else if (action === "up") {
+      terminal.write(`\x1b[<${buttonCode};${col};${row}m`)
+    } else if (action === "move") {
+      terminal.write(`\x1b[<${buttonCode};${col};${row}M`)
+    }
+
+    await sleep(100)
+    await terminal.flush()
+
+    return {
+      content: [{
+        type: "text" as const,
+        text: `Mouse ${action} at (${col}, ${row})${button && action !== "move" ? ` [${button}]` : ""}${userInputWarning(sessionId)}`,
+      }],
+    }
+  },
+)
+
+server.tool(
   "terminal_wait_for",
   "Wait for a regex pattern to appear in the terminal output. Polls the screen text at regular intervals and returns when the pattern matches or timeout is reached.",
   {
@@ -536,6 +579,13 @@ server.tool(
     const terminal = getSession(sessionId)
     const timeoutMs = timeout ?? 5000
     const pollInterval = 100
+
+    if (pattern.length > 500) {
+      return {
+        content: [{ type: "text" as const, text: `Pattern too long (max 500 chars)` }],
+        isError: true,
+      }
+    }
 
     // Validate regex immediately
     let regex: RegExp
@@ -693,6 +743,10 @@ server.tool(
 // --- Cleanup ---
 
 function cleanupSockets(): void {
+  for (const cleanup of sessionCleanup.values()) {
+    try { cleanup() } catch {}
+  }
+  // Handle sessions that may not have cleanup registered (e.g. replay sessions)
   for (const [id, attach] of attachServers) {
     for (const c of attach.clients) try { c.destroy() } catch {}
     try { attach.server.close() } catch {}
@@ -729,7 +783,8 @@ export async function startServer(): Promise<void> {
   await server.connect(transport)
 }
 
-// Auto-start when run directly (backwards compatibility)
 if (import.meta.main) {
-  await startServer()
+  process.stderr.write("Use `pty-mcp mcp` to start the MCP server.\n")
+  process.exit(1)
 }
+
