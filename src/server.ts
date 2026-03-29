@@ -2,58 +2,18 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
-import { HeadlessTerminal } from "./terminal"
-import { renderToPng } from "./renderer"
-import { sleep } from "./runtime"
-import { writeFile, mkdir, unlink } from "fs/promises"
-import { unlinkSync, readdirSync } from "fs"
-import { dirname } from "path"
-import { createServer as createNetServer, type Server as NetServer, type Socket as NetSocket } from "net"
-import type { TapeEvent } from "./tape"
-import { createTapeFile, replayTapeToSession } from "./tape"
-
-// Session management: map of session IDs to terminal instances
-const sessions = new Map<string, HeadlessTerminal>()
-let nextId = 1
-
-// Attach sockets: map of session IDs to { server, connected clients, output buffer }
-const MAX_ATTACH_BUFFER = 512 * 1024 // 512KB ring buffer per session
-const attachServers = new Map<string, { server: NetServer; ctrlServer: NetServer; clients: Set<NetSocket>; buffer: Buffer[]; bufferSize: number }>()
-
-// Per-session cleanup functions — called by terminal_kill or natural exit, whichever fires first
-const sessionCleanup = new Map<string, () => void>()
-
-// Track whether user has typed via attach since last screenshot
-const userInputPending = new Set<string>()
-
-function userInputWarning(sessionId: string): string {
-  if (!userInputPending.has(sessionId)) return ""
-  return "\n⚠ User has typed via attach since last screenshot — take a terminal_screenshot first to see current state."
-}
-
-const SERVER_PID = process.pid
-
-export function socketPathForSession(id: string): string {
-  return `/tmp/spectatty-${SERVER_PID}-${id}.sock`
-}
-
-export function controlSocketPathForSession(id: string): string {
-  return `/tmp/spectatty-${SERVER_PID}-${id}-ctrl.sock`
-}
-
-// Tape logging: records MCP tool interactions per session
-const tapeLogs = new Map<string, TapeEvent[]>()
-
-function getSession(id: string): HeadlessTerminal {
-  const session = sessions.get(id)
-  if (!session) throw new Error(`No terminal session with id: ${id}`)
-  return session
-}
+import { ensureDaemon, request } from "./client"
+import type { ScreenshotResult } from "./protocol"
 
 const server = new McpServer({
   name: "spectatty",
   version: "0.1.0",
 })
+
+async function call(method: string, params: Record<string, unknown>): Promise<unknown> {
+  await ensureDaemon()
+  return request(method, params)
+}
 
 // --- Tools ---
 
@@ -69,166 +29,11 @@ server.tool(
     env: z.record(z.string()).optional().describe("Additional environment variables"),
     recordingPath: z.string().optional().describe("If provided, start recording to this .cast file immediately on spawn"),
   },
-  async ({ shell, args, cols, rows, cwd, env, recordingPath }) => {
-    const id = `term-${nextId++}`
-    const terminal = new HeadlessTerminal({
-      cols: cols ?? 120,
-      rows: rows ?? 40,
-      shell,
-      args,
-      cwd,
-      env,
-    })
-    if (recordingPath) {
-      terminal.startRecording(recordingPath)
-    }
-    await terminal.spawn({ shell, args, cwd, env })
-    sessions.set(id, terminal)
-
-    // Attach socket: allow external processes to connect and collaborate
-    const socketPath = socketPathForSession(id)
-    const attachClients = new Set<NetSocket>()
-    const attachBuffer: Buffer[] = []
-    let attachBufferSize = 0
-
-    const socketServer = createNetServer((client) => {
-      attachClients.add(client)
-      // Replay full output history so the client terminal lands in the correct state
-      for (const chunk of attachBuffer) client.write(chunk)
-
-      // Pure raw passthrough: client bytes → PTY input; flag that user has typed
-      // buf contains raw UTF-8 bytes from the real terminal — decode as UTF-8
-      // so that bun-pty's write() (which re-encodes as UTF-8) gets correct chars
-      client.on("data", (buf: Buffer) => {
-        userInputPending.add(id)
-        terminal.write(buf.toString("utf8"))
-      })
-      client.on("close", () => attachClients.delete(client))
-      client.on("error", () => attachClients.delete(client))
-    })
-
-    // Buffer PTY output and broadcast to attached clients
-    // bun-pty fires onData with UTF-8 decoded strings — encode back to UTF-8 bytes for the socket
-    const unsubscribeOnData = terminal.onData((data) => {
-      const chunk = Buffer.from(data, "utf8")
-      attachBuffer.push(chunk)
-      attachBufferSize += chunk.length
-      // Trim oldest chunks if over limit
-      while (attachBufferSize > MAX_ATTACH_BUFFER && attachBuffer.length > 0) {
-        attachBufferSize -= attachBuffer.shift()!.length
-      }
-      for (const c of attachClients) c.write(chunk)
-    })
-
-    await unlink(socketPath).catch(() => {})
-    socketServer.listen(socketPath)
-
-    // Control socket: accepts newline-delimited JSON for out-of-band commands (e.g. resize)
-    const ctrlPath = controlSocketPathForSession(id)
-    await unlink(ctrlPath).catch(() => {})
-    const ctrlServer = createNetServer((client) => {
-      let lineBuf = ""
-      client.on("data", (data: Buffer) => {
-        lineBuf += data.toString("utf8")
-        const lines = lineBuf.split("\n")
-        lineBuf = lines.pop()!
-        for (const line of lines) {
-          if (!line.trim()) continue
-          try {
-            const msg = JSON.parse(line)
-            if (msg.type === "resize" && typeof msg.cols === "number" && typeof msg.rows === "number") {
-              terminal.resize(msg.cols, msg.rows)
-            }
-          } catch {}
-        }
-      })
-    })
-    ctrlServer.listen(ctrlPath)
-
-    attachServers.set(id, { server: socketServer, ctrlServer, clients: attachClients, buffer: attachBuffer, bufferSize: attachBufferSize })
-
-    // Shared cleanup — called by either natural exit or terminal_kill (whichever fires first)
-    let cleanedUp = false
-    const cleanupSession = () => {
-      if (cleanedUp) return
-      cleanedUp = true
-      sessionCleanup.delete(id)
-      unsubscribeOnData()
-      terminal.destroy()
-      sessions.delete(id)
-      tapeLogs.delete(id)
-      userInputPending.delete(id)
-      const attach = attachServers.get(id)
-      if (attach) {
-        for (const c of attach.clients) try { c.destroy() } catch {}
-        attach.server.close()
-        attach.ctrlServer.close()
-        attachServers.delete(id)
-        try { unlinkSync(socketPathForSession(id)) } catch {}
-        try { unlinkSync(controlSocketPathForSession(id)) } catch {}
-      }
-    }
-    sessionCleanup.set(id, cleanupSession)
-
-    // Auto-cleanup when the PTY exits naturally (e.g. user types `exit`)
-    // Without this, sessions map + xterm scrollback + attach sockets leak indefinitely
-    terminal.waitForExit().then(cleanupSession).catch(() => {})
-
-    // Initialize tape log for this session
-    tapeLogs.set(id, [{
-      type: "spawn",
-      sessionId: id,
-      shell,
-      args,
-      cols: cols ?? 120,
-      rows: rows ?? 40,
-      cwd,
-      env: env as Record<string, string> | undefined,
-      t: Date.now(),
-    }])
-
-    // Give shell a moment to initialize
-    await sleep(200)
-    await terminal.flush()
-
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify({
-            sessionId: id,
-            cols: terminal.cols,
-            rows: terminal.rows,
-            attachSocket: socketPathForSession(id),
-            ...(recordingPath ? { recordingPath } : {}),
-          }),
-        },
-      ],
-    }
+  async (params) => {
+    const result = await call("terminal_spawn", params as Record<string, unknown>)
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }] }
   },
 )
-
-// Named key → escape sequence mapping (xterm-256color)
-const KEY_SEQUENCES: Record<string, string> = {
-  enter: "\r",
-  return: "\r",
-  backspace: "\x7f",
-  delete: "\x1b[3~",
-  tab: "\t",
-  escape: "\x1b",
-  space: " ",
-  up: "\x1b[A",
-  down: "\x1b[B",
-  right: "\x1b[C",
-  left: "\x1b[D",
-  page_up: "\x1b[5~",
-  page_down: "\x1b[6~",
-  home: "\x1b[H",
-  end: "\x1b[F",
-  f1: "\x1bOP",  f2: "\x1bOQ",  f3: "\x1bOR",  f4: "\x1bOS",
-  f5: "\x1b[15~", f6: "\x1b[17~", f7: "\x1b[18~", f8: "\x1b[19~",
-  f9: "\x1b[20~", f10: "\x1b[21~", f11: "\x1b[23~", f12: "\x1b[24~",
-}
 
 server.tool(
   "terminal_type",
@@ -239,15 +44,8 @@ server.tool(
     submit: z.boolean().optional().describe("Press Enter after typing (default: false)"),
   },
   async ({ sessionId, text, submit }) => {
-    const terminal = getSession(sessionId)
-    terminal.write(text)
-    if (submit) terminal.write("\r")
-    tapeLogs.get(sessionId)?.push({ type: "write", sessionId, data: text + (submit ? "\r" : ""), t: Date.now() })
-    await sleep(100)
-    await terminal.flush()
-    return {
-      content: [{ type: "text" as const, text: `Typed ${JSON.stringify(text)}${submit ? " + Enter" : ""}${userInputWarning(sessionId)}` }],
-    }
+    await call("terminal_type", { sessionId, text, submit })
+    return { content: [{ type: "text" as const, text: `Typed ${JSON.stringify(text)}${submit ? " + Enter" : ""}` }] }
   },
 )
 
@@ -260,23 +58,8 @@ server.tool(
     times: z.number().optional().describe("Number of times to press the key (default: 1)"),
   },
   async ({ sessionId, key, times }) => {
-    const terminal = getSession(sessionId)
-    const seq = KEY_SEQUENCES[key.toLowerCase()]
-    if (!seq) {
-      return {
-        content: [{ type: "text" as const, text: `Unknown key: "${key}". Valid keys: ${Object.keys(KEY_SEQUENCES).join(", ")}` }],
-        isError: true,
-      }
-    }
-    const count = times ?? 1
-    const data = seq.repeat(count)
-    terminal.write(data)
-    tapeLogs.get(sessionId)?.push({ type: "write", sessionId, data, t: Date.now() })
-    await sleep(100)
-    await terminal.flush()
-    return {
-      content: [{ type: "text" as const, text: `Pressed ${key}${count > 1 ? ` × ${count}` : ""}${userInputWarning(sessionId)}` }],
-    }
+    await call("terminal_key", { sessionId, key, times })
+    return { content: [{ type: "text" as const, text: `Pressed ${key}${times && times > 1 ? ` × ${times}` : ""}` }] }
   },
 )
 
@@ -288,22 +71,8 @@ server.tool(
     key: z.string().describe("Key to combine with Ctrl, e.g. 'c', 'd', 'z', 'l'"),
   },
   async ({ sessionId, key }) => {
-    const terminal = getSession(sessionId)
-    const k = key.toLowerCase()
-    if (!/^[a-z]$/.test(k)) {
-      return {
-        content: [{ type: "text" as const, text: `Ctrl key must be a single letter a–z, got: "${key}"` }],
-        isError: true,
-      }
-    }
-    const data = String.fromCharCode(k.charCodeAt(0) - 0x60)
-    terminal.write(data)
-    tapeLogs.get(sessionId)?.push({ type: "write", sessionId, data, t: Date.now() })
-    await sleep(100)
-    await terminal.flush()
-    return {
-      content: [{ type: "text" as const, text: `Sent Ctrl+${key.toUpperCase()}${userInputWarning(sessionId)}` }],
-    }
+    await call("terminal_ctrl", { sessionId, key })
+    return { content: [{ type: "text" as const, text: `Sent Ctrl+${key.toUpperCase()}` }] }
   },
 )
 
@@ -315,28 +84,8 @@ server.tool(
     data: z.string().describe("Data to write (text, or escape sequences like \\x03 for Ctrl+C, \\r for Enter)"),
   },
   async ({ sessionId, data }) => {
-    const terminal = getSession(sessionId)
-
-    // Unescape common control sequences from the string
-    const unescaped = data
-      .replace(/\\r/g, "\r")
-      .replace(/\\n/g, "\n")
-      .replace(/\\t/g, "\t")
-      .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-      .replace(/\\e/g, "\x1b")
-
-    terminal.write(unescaped)
-
-    // Log to tape
-    tapeLogs.get(sessionId)?.push({ type: "write", sessionId, data: unescaped, t: Date.now() })
-
-    // Wait for output to be processed
-    await sleep(100)
-    await terminal.flush()
-
-    return {
-      content: [{ type: "text" as const, text: `Wrote ${unescaped.length} bytes to ${sessionId}${userInputWarning(sessionId)}` }],
-    }
+    const result = await call("terminal_write", { sessionId, data }) as { ok: true; bytes: number }
+    return { content: [{ type: "text" as const, text: `Wrote ${result.bytes} bytes` }] }
   },
 )
 
@@ -359,75 +108,22 @@ server.tool(
       .describe("Scroll to this absolute line number before capturing. If omitted, scrolls to the bottom (latest output). Use totalLines from a previous response to navigate."),
   },
   async ({ sessionId, format, savePath, viewportTop }) => {
-    const terminal = getSession(sessionId)
-    await terminal.flush()
+    const result = await call("terminal_screenshot", { sessionId, format, savePath, viewportTop }) as ScreenshotResult
+    const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = []
 
-    const prevViewportTop = terminal.getBufferMeta().viewportTop
-    if (viewportTop !== undefined) {
-      terminal.scrollToLine(viewportTop)
-    } else {
-      terminal.scrollToBottom()
+    if (result.text !== undefined) {
+      content.push({ type: "text" as const, text: result.text })
     }
 
-    // Log to tape
-    tapeLogs.get(sessionId)?.push({ type: "screenshot", sessionId, t: Date.now() })
-    // User has seen the current state — clear pending flag
-    userInputPending.delete(sessionId)
-
-    const fmt = format ?? "both"
-    const content: Array<
-      | { type: "text"; text: string }
-      | { type: "image"; data: string; mimeType: string }
-    > = []
-
-    if (fmt === "text" || fmt === "both") {
-      content.push({
-        type: "text" as const,
-        text: terminal.getText(),
-      })
+    if (result.pngBase64 !== undefined) {
+      content.push({ type: "image" as const, data: result.pngBase64, mimeType: "image/png" })
     }
 
-    if (fmt === "png" || fmt === "both") {
-      const grid = terminal.getCellGrid()
-      const png = renderToPng(grid, terminal.cols, terminal.rows)
-      content.push({
-        type: "image" as const,
-        data: png.toString("base64"),
-        mimeType: "image/png",
-      })
-
-      if (savePath) {
-        await mkdir(dirname(savePath), { recursive: true })
-        await writeFile(savePath, png)
-        content.push({
-          type: "text" as const,
-          text: `Screenshot saved to ${savePath}`,
-        })
-      }
-    } else if (savePath) {
-      content.push({
-        type: "text" as const,
-        text: `savePath ignored because format is "text" (no PNG to save)`,
-      })
+    if (result.savedTo !== undefined) {
+      content.push({ type: "text" as const, text: `Screenshot saved to ${result.savedTo}` })
     }
 
-    const meta = terminal.getBufferMeta()
-    content.push({
-      type: "text" as const,
-      text: JSON.stringify({
-        totalLines: meta.totalLines,
-        cursorX: meta.cursorX,
-        cursorY: meta.cursorY,
-        viewportTop: meta.viewportTop,
-        isAlternateBuffer: meta.isAlternateBuffer,
-        cols: terminal.cols,
-        rows: terminal.rows,
-      }),
-    })
-
-    // Restore viewport to where it was before a scoped capture so subsequent
-    // getText() / terminal_wait_for calls see the live bottom of the buffer
-    if (viewportTop !== undefined) terminal.scrollToLine(prevViewportTop)
+    content.push({ type: "text" as const, text: JSON.stringify(result.meta) })
 
     return { content }
   },
@@ -442,14 +138,8 @@ server.tool(
     rows: z.number().describe("New height in rows"),
   },
   async ({ sessionId, cols, rows }) => {
-    const terminal = getSession(sessionId)
-    terminal.resize(cols, rows)
-    await sleep(50)
-    await terminal.flush()
-
-    return {
-      content: [{ type: "text" as const, text: `Resized ${sessionId} to ${cols}x${rows}` }],
-    }
+    await call("terminal_resize", { sessionId, cols, rows })
+    return { content: [{ type: "text" as const, text: `Resized ${sessionId} to ${cols}x${rows}` }] }
   },
 )
 
@@ -460,14 +150,8 @@ server.tool(
     sessionId: z.string().describe("Terminal session ID"),
   },
   async ({ sessionId }) => {
-    getSession(sessionId) // validate session exists
-    tapeLogs.get(sessionId)?.push({ type: "kill", sessionId, t: Date.now() })
-    const cleanup = sessionCleanup.get(sessionId)
-    if (cleanup) cleanup()
-
-    return {
-      content: [{ type: "text" as const, text: `Killed session ${sessionId}` }],
-    }
+    await call("terminal_kill", { sessionId })
+    return { content: [{ type: "text" as const, text: `Killed session ${sessionId}` }] }
   },
 )
 
@@ -476,17 +160,8 @@ server.tool(
   "List all active terminal sessions",
   {},
   async () => {
-    const list = Array.from(sessions.entries()).map(([id, term]) => ({
-      id,
-      cols: term.cols,
-      rows: term.rows,
-      exited: term.exited,
-      exitCode: term.exitCode,
-    }))
-
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify(list, null, 2) }],
-    }
+    const result = await call("terminal_list", {})
+    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] }
   },
 )
 
@@ -499,29 +174,8 @@ server.tool(
     amount: z.number().optional().describe("Number of lines to scroll (default: 5). Use larger values like 40 for page-style scrolling."),
   },
   async ({ sessionId, direction, amount }) => {
-    const terminal = getSession(sessionId)
-    const lines = amount ?? 5
-
-    // For TUI apps, mouse scroll events are more reliable
-    for (let i = 0; i < lines; i++) {
-      const button = direction === "up" ? 65 : 64
-      terminal.write(`\x1b[<${button};1;1M`)
-      terminal.write(`\x1b[<${button};1;1m`)
-    }
-
-    await sleep(100)
-    await terminal.flush()
-
-    const meta = terminal.getBufferMeta()
-    return {
-      content: [{
-        type: "text" as const,
-        text: JSON.stringify({
-          scrolled: `${direction} ${lines} lines`,
-          ...meta,
-        }) + userInputWarning(sessionId),
-      }],
-    }
+    const result = await call("terminal_send_scroll", { sessionId, direction, amount })
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }] }
   },
 )
 
@@ -536,34 +190,8 @@ server.tool(
     button: z.enum(["left", "middle", "right"]).optional().describe("Mouse button (default: left). Ignored for move."),
   },
   async ({ sessionId, action, x, y, button }) => {
-    const terminal = getSession(sessionId)
-
-    // SGR mouse encoding: \x1b[<Cb;Cx;CyM (press) / \x1b[<Cb;Cx;Cym (release)
-    // Button codes: 0=left, 1=middle, 2=right, 32=motion
-    const buttonCode = action === "move" ? 32 : (button === "right" ? 2 : button === "middle" ? 1 : 0)
-    const col = Math.max(1, Math.round(x))
-    const row = Math.max(1, Math.round(y))
-
-    if (action === "click") {
-      terminal.write(`\x1b[<${buttonCode};${col};${row}M`)
-      terminal.write(`\x1b[<${buttonCode};${col};${row}m`)
-    } else if (action === "down") {
-      terminal.write(`\x1b[<${buttonCode};${col};${row}M`)
-    } else if (action === "up") {
-      terminal.write(`\x1b[<${buttonCode};${col};${row}m`)
-    } else if (action === "move") {
-      terminal.write(`\x1b[<${buttonCode};${col};${row}M`)
-    }
-
-    await sleep(100)
-    await terminal.flush()
-
-    return {
-      content: [{
-        type: "text" as const,
-        text: `Mouse ${action} at (${col}, ${row})${button && action !== "move" ? ` [${button}]` : ""}${userInputWarning(sessionId)}`,
-      }],
-    }
+    const result = await call("terminal_mouse", { sessionId, action, x, y, button }) as { ok: true; action: string; x: number; y: number }
+    return { content: [{ type: "text" as const, text: `Mouse ${result.action} at (${result.x}, ${result.y})${button && action !== "move" ? ` [${button}]` : ""}` }] }
   },
 )
 
@@ -576,73 +204,8 @@ server.tool(
     timeout: z.number().optional().describe("Timeout in milliseconds (default: 5000)"),
   },
   async ({ sessionId, pattern, timeout }) => {
-    const terminal = getSession(sessionId)
-    const timeoutMs = timeout ?? 5000
-    const pollInterval = 100
-
-    if (pattern.length > 500) {
-      return {
-        content: [{ type: "text" as const, text: `Pattern too long (max 500 chars)` }],
-        isError: true,
-      }
-    }
-
-    // Validate regex immediately
-    let regex: RegExp
-    try {
-      regex = new RegExp(pattern)
-    } catch (e) {
-      return {
-        content: [{
-          type: "text" as const,
-          text: `Invalid regex pattern: ${(e as Error).message}`,
-        }],
-        isError: true,
-      }
-    }
-
-    const start = Date.now()
-
-    while (Date.now() - start < timeoutMs) {
-      let text: string
-      try {
-        await terminal.flush()
-        text = terminal.getText()
-      } catch (_e) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Session ${sessionId} is no longer available`,
-          }],
-          isError: true,
-        }
-      }
-
-      const match = regex.exec(text)
-      if (match) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              matched: true,
-              text: match[0],
-              index: match.index,
-              pattern,
-            }) + userInputWarning(sessionId),
-          }],
-        }
-      }
-
-      await sleep(pollInterval)
-    }
-
-    return {
-      content: [{
-        type: "text" as const,
-        text: `Timed out after ${timeoutMs}ms waiting for pattern: ${pattern}${userInputWarning(sessionId)}`,
-      }],
-      isError: true,
-    }
+    const result = await call("terminal_wait_for", { sessionId, pattern, timeout })
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }] }
   },
 )
 
@@ -655,23 +218,9 @@ server.tool(
     recordingPath: z.string().optional().describe("If provided, record the replay to this .cast file"),
     maxDelay: z.number().optional().describe("Clamp inter-event delays to this many ms (default: 3000)"),
   },
-  async ({ tapePath, sessionId, recordingPath, maxDelay }) => {
-    const terminal = await replayTapeToSession(tapePath, { sessionId, recordingPath, maxDelay })
-    const id = `term-${nextId++}`
-    sessions.set(id, terminal)
-    tapeLogs.set(id, [])
-
-    return {
-      content: [{
-        type: "text" as const,
-        text: JSON.stringify({
-          sessionId: id,
-          cols: terminal.cols,
-          rows: terminal.rows,
-          ...(recordingPath ? { recordingPath } : {}),
-        }),
-      }],
-    }
+  async (params) => {
+    const result = await call("terminal_replay_tape", params as Record<string, unknown>)
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }] }
   },
 )
 
@@ -683,19 +232,8 @@ server.tool(
     savePath: z.string().describe("File path to save the .tape.json file"),
   },
   async ({ sessionId, savePath }) => {
-    getSession(sessionId) // validate session exists
-    const events = tapeLogs.get(sessionId)
-    if (!events || events.length === 0) {
-      return {
-        content: [{ type: "text" as const, text: `No tape events recorded for session ${sessionId}` }],
-      }
-    }
-    const tape = createTapeFile(events)
-    await mkdir(dirname(savePath), { recursive: true })
-    await writeFile(savePath, JSON.stringify(tape, null, 2))
-    return {
-      content: [{ type: "text" as const, text: `Tape saved to ${savePath} (${events.length} events)` }],
-    }
+    const result = await call("terminal_export_tape", { sessionId, savePath }) as { savedTo: string; events: number }
+    return { content: [{ type: "text" as const, text: `Tape saved to ${result.savedTo} (${result.events} events)` }] }
   },
 )
 
@@ -707,16 +245,8 @@ server.tool(
     savePath: z.string().describe("File path to save the .cast recording"),
   },
   async ({ sessionId, savePath }) => {
-    const terminal = getSession(sessionId)
-    if (terminal.recording) {
-      return {
-        content: [{ type: "text" as const, text: `Session ${sessionId} is already recording` }],
-      }
-    }
-    terminal.startRecording(savePath)
-    return {
-      content: [{ type: "text" as const, text: `Started recording ${sessionId} to ${savePath}` }],
-    }
+    await call("terminal_record_start", { sessionId, savePath })
+    return { content: [{ type: "text" as const, text: `Started recording ${sessionId} to ${savePath}` }] }
   },
 )
 
@@ -727,58 +257,14 @@ server.tool(
     sessionId: z.string().describe("Terminal session ID"),
   },
   async ({ sessionId }) => {
-    const terminal = getSession(sessionId)
-    if (!terminal.recording) {
-      return {
-        content: [{ type: "text" as const, text: `Session ${sessionId} is not recording` }],
-      }
-    }
-    terminal.stopRecording()
-    return {
-      content: [{ type: "text" as const, text: `Stopped recording ${sessionId}` }],
-    }
+    await call("terminal_record_stop", { sessionId })
+    return { content: [{ type: "text" as const, text: `Stopped recording ${sessionId}` }] }
   },
 )
 
-// --- Cleanup ---
-
-function cleanupSockets(): void {
-  for (const cleanup of sessionCleanup.values()) {
-    try { cleanup() } catch {}
-  }
-  // Handle sessions that may not have cleanup registered (e.g. replay sessions)
-  for (const [id, attach] of attachServers) {
-    for (const c of attach.clients) try { c.destroy() } catch {}
-    try { attach.server.close() } catch {}
-    try { attach.ctrlServer.close() } catch {}
-    try { unlinkSync(socketPathForSession(id)) } catch {}
-    try { unlinkSync(controlSocketPathForSession(id)) } catch {}
-  }
-}
-
-process.on("exit", cleanupSockets)
-process.on("SIGINT", () => { cleanupSockets(); process.exit(130) })
-process.on("SIGTERM", () => { cleanupSockets(); process.exit(143) })
-
 // --- Start ---
 
-function cleanupStaleSockets(): void {
-  // Remove socket files from dead server processes (identified by PID in filename)
-  // Pattern: /tmp/spectatty-<pid>-<id>.sock and /tmp/spectatty-<pid>-<id>-ctrl.sock
-  let files: string[]
-  try {
-    files = readdirSync("/tmp").filter(f => /^spectatty-\d+-/.test(f))
-  } catch { return }
-  for (const f of files) {
-    const pid = parseInt(f.split("-")[2], 10)
-    if (pid === SERVER_PID) continue // our own — handled by cleanupSockets()
-    // Check if the process is still alive (kill -0 doesn't send a signal, just checks)
-    try { process.kill(pid, 0) } catch { unlinkSync(`/tmp/${f}`) }
-  }
-}
-
 export async function startServer(): Promise<void> {
-  cleanupStaleSockets()
   const transport = new StdioServerTransport()
   await server.connect(transport)
 }
@@ -787,4 +273,3 @@ if (import.meta.main) {
   process.stderr.write("Use `spectatty mcp` to start the MCP server.\n")
   process.exit(1)
 }
-

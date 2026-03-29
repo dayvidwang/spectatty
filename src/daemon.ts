@@ -14,6 +14,7 @@ import { getTheme } from "./themes"
 import { sleep } from "./runtime"
 import { createTapeFile, replayTapeToSession } from "./tape"
 import type { TapeEvent } from "./tape"
+import type { DaemonHandlers, ScreenshotResult, BufferMeta } from "./protocol"
 import { writeFile, mkdir, unlink, rm } from "fs/promises"
 import { unlinkSync, readdirSync } from "fs"
 import { dirname, resolve } from "path"
@@ -198,7 +199,7 @@ async function handleType(params: Record<string, unknown>) {
   tapeLogs.get(sessionId)?.push({ type: "write", sessionId, data: text + (submit ? "\r" : ""), t: Date.now() })
   await sleep(100)
   await terminal.flush()
-  return { ok: true }
+  return { ok: true } as const
 }
 
 async function handleKey(params: Record<string, unknown>) {
@@ -212,7 +213,7 @@ async function handleKey(params: Record<string, unknown>) {
   tapeLogs.get(sessionId)?.push({ type: "write", sessionId, data, t: Date.now() })
   await sleep(100)
   await terminal.flush()
-  return { ok: true }
+  return { ok: true } as const
 }
 
 async function handleCtrl(params: Record<string, unknown>) {
@@ -225,7 +226,7 @@ async function handleCtrl(params: Record<string, unknown>) {
   tapeLogs.get(sessionId)?.push({ type: "write", sessionId, data, t: Date.now() })
   await sleep(100)
   await terminal.flush()
-  return { ok: true }
+  return { ok: true } as const
 }
 
 async function handleWrite(params: Record<string, unknown>) {
@@ -241,7 +242,7 @@ async function handleWrite(params: Record<string, unknown>) {
   tapeLogs.get(sessionId)?.push({ type: "write", sessionId, data: unescaped, t: Date.now() })
   await sleep(100)
   await terminal.flush()
-  return { ok: true, bytes: unescaped.length }
+  return { ok: true as const, bytes: unescaped.length }
 }
 
 async function handleScreenshot(params: Record<string, unknown>) {
@@ -261,7 +262,7 @@ async function handleScreenshot(params: Record<string, unknown>) {
   tapeLogs.get(sessionId)?.push({ type: "screenshot", sessionId, t: Date.now() })
 
   const fmt = format ?? "text"
-  const result: Record<string, unknown> = {}
+  const result: Partial<ScreenshotResult> = {}
 
   if (fmt === "text" || fmt === "both") {
     result.text = terminal.getText()
@@ -279,20 +280,20 @@ async function handleScreenshot(params: Record<string, unknown>) {
     }
   }
 
-  const meta = terminal.getBufferMeta()
+  const raw = terminal.getBufferMeta()
   result.meta = {
-    totalLines: meta.totalLines,
-    cursorX: meta.cursorX,
-    cursorY: meta.cursorY,
-    viewportTop: meta.viewportTop,
-    isAlternateBuffer: meta.isAlternateBuffer,
+    totalLines: raw.totalLines,
+    cursorX: raw.cursorX,
+    cursorY: raw.cursorY,
+    viewportTop: raw.viewportTop,
+    isAlternateBuffer: raw.isAlternateBuffer,
     cols: terminal.cols,
     rows: terminal.rows,
   }
 
   if (viewportTop !== undefined) terminal.scrollToLine(prevViewportTop)
 
-  return result
+  return result as ScreenshotResult
 }
 
 async function handleResize(params: Record<string, unknown>) {
@@ -301,7 +302,7 @@ async function handleResize(params: Record<string, unknown>) {
   terminal.resize(cols, rows)
   await sleep(50)
   await terminal.flush()
-  return { ok: true, cols: terminal.cols, rows: terminal.rows }
+  return { ok: true as const, cols: terminal.cols, rows: terminal.rows }
 }
 
 function handleKill(params: Record<string, unknown>) {
@@ -310,7 +311,7 @@ function handleKill(params: Record<string, unknown>) {
   tapeLogs.get(sessionId)?.push({ type: "kill", sessionId, t: Date.now() })
   const cleanup = sessionCleanup.get(sessionId)
   if (cleanup) cleanup()
-  return { ok: true }
+  return { ok: true } as const
 }
 
 function handleList() {
@@ -338,7 +339,7 @@ async function handleScroll(params: Record<string, unknown>) {
   await sleep(100)
   await terminal.flush()
   const meta = terminal.getBufferMeta()
-  return { scrolled: `${direction} ${lines} lines`, ...meta }
+  return { scrolled: `${direction} ${lines} lines`, ...meta, cols: terminal.cols, rows: terminal.rows }
 }
 
 async function handleMouse(params: Record<string, unknown>) {
@@ -362,7 +363,7 @@ async function handleMouse(params: Record<string, unknown>) {
   }
   await sleep(100)
   await terminal.flush()
-  return { ok: true, action, x: col, y: row }
+  return { ok: true as const, action, x: col, y: row }
 }
 
 async function handleWaitFor(params: Record<string, unknown>) {
@@ -395,7 +396,7 @@ async function handleWaitFor(params: Record<string, unknown>) {
     await sleep(100)
   }
 
-  return { matched: false, error: `Timed out after ${timeoutMs}ms waiting for: ${pattern}` }
+  return { matched: false, pattern, error: `Timed out after ${timeoutMs}ms waiting for: ${pattern}` }
 }
 
 async function handleReplayTape(params: Record<string, unknown>) {
@@ -425,7 +426,7 @@ function handleRecordStart(params: Record<string, unknown>) {
   const terminal = getSession(sessionId)
   if (terminal.recording) throw new Error(`Session ${sessionId} is already recording`)
   terminal.startRecording(savePath)
-  return { ok: true, path: savePath }
+  return { ok: true as const, path: savePath }
 }
 
 function handleRecordStop(params: Record<string, unknown>) {
@@ -433,32 +434,38 @@ function handleRecordStop(params: Record<string, unknown>) {
   const terminal = getSession(sessionId)
   if (!terminal.recording) throw new Error(`Session ${sessionId} is not recording`)
   terminal.stopRecording()
-  return { ok: true }
+  return { ok: true } as const
 }
 
 // --- Request dispatcher ---
 
+// Typed dispatch table — TypeScript will error here if a DaemonMethod is missing
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const HANDLERS: DaemonHandlers = {
+  terminal_spawn:        (p) => handleSpawn(p as any),
+  terminal_type:         (p) => handleType(p as any),
+  terminal_key:          (p) => handleKey(p as any),
+  terminal_ctrl:         (p) => handleCtrl(p as any),
+  terminal_write:        (p) => handleWrite(p as any),
+  terminal_screenshot:   (p) => handleScreenshot(p as any),
+  terminal_resize:       (p) => handleResize(p as any),
+  terminal_kill:         (p) => handleKill(p as any),
+  terminal_list:         ()  => handleList(),
+  terminal_send_scroll:  (p) => handleScroll(p as any),
+  terminal_mouse:        (p) => handleMouse(p as any),
+  terminal_wait_for:     (p) => handleWaitFor(p as any),
+  terminal_replay_tape:  (p) => handleReplayTape(p as any),
+  terminal_export_tape:  (p) => handleExportTape(p as any),
+  terminal_record_start: (p) => handleRecordStart(p as any),
+  terminal_record_stop:  (p) => handleRecordStop(p as any),
+}
+
 async function dispatch(method: string, params: Record<string, unknown>): Promise<unknown> {
-  switch (method) {
-    case "ping": return { pong: true, sessions: sessions.size, pid: DAEMON_PID }
-    case "terminal_spawn": return handleSpawn(params)
-    case "terminal_type": return handleType(params)
-    case "terminal_key": return handleKey(params)
-    case "terminal_ctrl": return handleCtrl(params)
-    case "terminal_write": return handleWrite(params)
-    case "terminal_screenshot": return handleScreenshot(params)
-    case "terminal_resize": return handleResize(params)
-    case "terminal_kill": return handleKill(params)
-    case "terminal_list": return handleList()
-    case "terminal_send_scroll": return handleScroll(params)
-    case "terminal_mouse": return handleMouse(params)
-    case "terminal_wait_for": return handleWaitFor(params)
-    case "terminal_replay_tape": return handleReplayTape(params)
-    case "terminal_export_tape": return handleExportTape(params)
-    case "terminal_record_start": return handleRecordStart(params)
-    case "terminal_record_stop": return handleRecordStop(params)
-    default: throw new Error(`Unknown method: ${method}`)
-  }
+  if (method === "ping") return { pong: true, sessions: sessions.size, pid: DAEMON_PID }
+  const handler = HANDLERS[method as keyof DaemonHandlers]
+  if (!handler) throw new Error(`Unknown method: ${method}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return handler(params as any)
 }
 
 // --- Socket server ---
