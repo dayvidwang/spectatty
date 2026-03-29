@@ -3,6 +3,8 @@ import { SerializeAddon } from "@xterm/addon-serialize"
 import { spawnPty, type PtyProcess } from "./pty"
 import { openSync, writeSync, closeSync, mkdirSync } from "fs"
 import { dirname } from "path"
+import type { Theme } from "./themes"
+import { DEFAULT_THEME } from "./themes"
 
 export interface TerminalOptions {
   cols?: number
@@ -62,6 +64,7 @@ export class HeadlessTerminal {
   private _recording = false
   private _recordStart: number = 0
   private _recordFd: number | null = null
+  private _dataListeners: Array<(data: string) => void> = []
 
   cols: number
   rows: number
@@ -104,6 +107,7 @@ export class HeadlessTerminal {
         writeSync(this._recordFd, JSON.stringify([elapsed, "o", data]) + "\n")
       }
       this.xterm.write(data)
+      for (const listener of this._dataListeners) listener(data)
     })
 
     this._exitPromise = new Promise<number>((resolve) => {
@@ -113,6 +117,15 @@ export class HeadlessTerminal {
         resolve(exitCode)
       })
     })
+  }
+
+  onData(listener: (data: string) => void): () => void {
+    this._dataListeners.push(listener)
+    return () => { this._dataListeners = this._dataListeners.filter(l => l !== listener) }
+  }
+
+  serializeScreen(): string {
+    return this.serialize.serialize()
   }
 
   write(data: string): void {
@@ -163,7 +176,7 @@ export class HeadlessTerminal {
   }
 
   // Get the full cell grid with color/attribute info
-  getCellGrid(): CellInfo[][] {
+  getCellGrid(theme?: Theme): CellInfo[][] {
     const buffer = this.xterm.buffer.active
     const base = buffer.viewportY
     const grid: CellInfo[][] = []
@@ -177,8 +190,8 @@ export class HeadlessTerminal {
           if (cell) {
             row.push({
               char: cell.getChars() || " ",
-              fg: this.resolveColor(cell, "fg"),
-              bg: this.resolveColor(cell, "bg"),
+              fg: this.resolveColor(cell, "fg", theme),
+              bg: this.resolveColor(cell, "bg", theme),
               bold: cell.isBold() === 1,
               italic: cell.isItalic() === 1,
               dim: cell.isDim() === 1,
@@ -194,21 +207,30 @@ export class HeadlessTerminal {
     return grid
   }
 
+  // Write data directly to xterm buffer without PTY (for replay/virtual mode)
+  injectData(data: string): Promise<void> {
+    return new Promise<void>((resolve) => this.xterm.write(data, resolve))
+  }
+
   private resolveColor(
     cell: ReturnType<NonNullable<ReturnType<typeof this.xterm.buffer.active.getLine>>["getCell"]>,
     type: "fg" | "bg",
+    theme?: Theme,
   ): string {
-    if (!cell) return type === "fg" ? "#c0c0c0" : "#000000"
+    const t = theme ?? DEFAULT_THEME
+    if (!cell) return type === "fg" ? t.fg : t.bg
 
     const isDefault = type === "fg" ? cell.isFgDefault() : cell.isBgDefault()
     const isPalette = type === "fg" ? cell.isFgPalette() : cell.isBgPalette()
     const isRGB = type === "fg" ? cell.isFgRGB() : cell.isBgRGB()
     const color = type === "fg" ? cell.getFgColor() : cell.getBgColor()
 
-    if (isDefault) return type === "fg" ? "#c0c0c0" : "#1e1e1e"
+    if (isDefault) return type === "fg" ? t.fg : t.bg
 
     if (isPalette) {
-      return PALETTE_256[color] ?? (type === "fg" ? "#c0c0c0" : "#1e1e1e")
+      // Use theme palette for ANSI colors 0–15, standard 256-color palette for 16+
+      if (color < 16) return t.palette[color] ?? (type === "fg" ? t.fg : t.bg)
+      return PALETTE_256[color] ?? (type === "fg" ? t.fg : t.bg)
     }
 
     if (isRGB) {
@@ -218,7 +240,7 @@ export class HeadlessTerminal {
       return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`
     }
 
-    return type === "fg" ? "#c0c0c0" : "#1e1e1e"
+    return type === "fg" ? t.fg : t.bg
   }
 
   // Get HTML representation via serialize addon
