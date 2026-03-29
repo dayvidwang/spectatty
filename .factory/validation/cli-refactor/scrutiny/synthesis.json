@@ -1,0 +1,59 @@
+{
+  "milestone": "cli-refactor",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "bun vitest run",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "bunx tsc --noEmit",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "N/A (no lint command configured in .factory/services.yaml or package.json scripts)",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 4,
+    "passed": 3,
+    "failed": 1,
+    "failedFeatures": [
+      "cast-tail-polish"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "cast-tail-polish",
+      "severity": "blocking",
+      "description": "Whitespace-only invalid files are treated as live streams instead of format errors: blank lines are skipped, content is considered present once bytes are read, and EOF enters live-tail mode without validating a header. This can hang instead of exiting with an invalid-format error."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skill:impl-worker",
+      "suggestion": "Update typecheck guidance to use `bunx tsc --noEmit` (matching mission AGENTS and .factory/services.yaml) to avoid avoidable command failures/churn.",
+      "evidence": "Observed across all 4 reviewed cli-refactor features: workers attempted `bun tsc --noEmit` first, then had to fall back to `bunx tsc --noEmit`.",
+      "isSystemic": true
+    },
+    {
+      "target": "skill:impl-worker",
+      "suggestion": "Clarify skillFeedback expectations: if tests-first TDD is not followed, workers should set `followedProcedure` to false and include deviations.",
+      "evidence": "cast-tail-polish review observed implementation was created before tests while handoff reported followedProcedure=true.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Document pre-existing PTY timing flakes in .factory/library.",
+      "reason": "ambiguous: flakiness was reported in one prior handoff but was not reproduced in the current full validator run."
+    }
+  ],
+  "previousRound": null
+}
