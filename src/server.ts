@@ -278,6 +278,78 @@ server.tool(
 )
 
 server.tool(
+  "terminal_wait_for",
+  "Wait for a regex pattern to appear in the terminal output. Polls the screen text at regular intervals and returns when the pattern matches or timeout is reached.",
+  {
+    sessionId: z.string().describe("Terminal session ID"),
+    pattern: z.string().describe("Regex pattern to wait for in the terminal text"),
+    timeout: z.number().optional().describe("Timeout in milliseconds (default: 5000)"),
+  },
+  async ({ sessionId, pattern, timeout }) => {
+    const terminal = getSession(sessionId)
+    const timeoutMs = timeout ?? 5000
+    const pollInterval = 100
+
+    // Validate regex immediately
+    let regex: RegExp
+    try {
+      regex = new RegExp(pattern)
+    } catch (e) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Invalid regex pattern: ${(e as Error).message}`,
+        }],
+        isError: true,
+      }
+    }
+
+    const start = Date.now()
+
+    while (Date.now() - start < timeoutMs) {
+      let text: string
+      try {
+        await terminal.flush()
+        text = terminal.getText()
+      } catch (_e) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Session ${sessionId} is no longer available`,
+          }],
+          isError: true,
+        }
+      }
+
+      const match = regex.exec(text)
+      if (match) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              matched: true,
+              text: match[0],
+              index: match.index,
+              pattern,
+            }),
+          }],
+        }
+      }
+
+      await sleep(pollInterval)
+    }
+
+    return {
+      content: [{
+        type: "text" as const,
+        text: `Timed out after ${timeoutMs}ms waiting for pattern: ${pattern}`,
+      }],
+      isError: true,
+    }
+  },
+)
+
+server.tool(
   "terminal_record_start",
   "Start recording terminal output as an asciicast v2 recording",
   {
