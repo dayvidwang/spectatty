@@ -1,5 +1,15 @@
 import { createCanvas, GlobalFonts, type Canvas } from "@napi-rs/canvas"
+import { join, dirname } from "path"
+import { fileURLToPath } from "url"
 import type { CellInfo } from "./terminal"
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const assetsDir = join(__dirname, "..", "assets")
+
+GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Regular.ttf"), "JetBrainsMono")
+GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Bold.ttf"), "JetBrainsMono")
+GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Italic.ttf"), "JetBrainsMono")
+GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-BoldItalic.ttf"), "JetBrainsMono")
 
 export interface RenderOptions {
   fontSize?: number
@@ -9,12 +19,18 @@ export interface RenderOptions {
   padding?: number
 }
 
-const DEFAULT_OPTIONS: Required<RenderOptions> = {
+const DEFAULT_OPTIONS: Required<Omit<RenderOptions, "cellWidth">> & { cellWidth?: number } = {
   fontSize: 14,
-  fontFamily: "monospace",
-  cellWidth: 8.4,
+  fontFamily: "JetBrainsMono",
   cellHeight: 18,
   padding: 8,
+}
+
+function measureCellWidth(fontSize: number, fontFamily: string): number {
+  const c = createCanvas(100, 100)
+  const ctx = c.getContext("2d")
+  ctx.font = `${fontSize}px ${fontFamily}`
+  return ctx.measureText("M").width
 }
 
 export function renderToPng(
@@ -23,7 +39,9 @@ export function renderToPng(
   rows: number,
   options: RenderOptions = {},
 ): Buffer {
-  const opts = { ...DEFAULT_OPTIONS, ...options }
+  const merged = { ...DEFAULT_OPTIONS, ...options }
+  const cellWidth = merged.cellWidth ?? measureCellWidth(merged.fontSize, merged.fontFamily)
+  const opts = { ...merged, cellWidth }
 
   const width = Math.ceil(cols * opts.cellWidth + opts.padding * 2)
   const height = Math.ceil(rows * opts.cellHeight + opts.padding * 2)

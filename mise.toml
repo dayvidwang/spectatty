@@ -1,0 +1,4 @@
+[tools]
+bun = "latest"
+pipx = "latest"
+"ubi:asciinema/asciinema" = "latest"

@@ -1,6 +1,8 @@
 import { Terminal } from "@xterm/headless"
 import { SerializeAddon } from "@xterm/addon-serialize"
 import { spawnPty, type PtyProcess } from "./pty"
+import { openSync, writeSync, closeSync, mkdirSync } from "fs"
+import { dirname } from "path"
 
 export interface TerminalOptions {
   cols?: number
@@ -57,6 +59,9 @@ export class HeadlessTerminal {
   private _exited = false
   private _exitCode: number | null = null
   private _exitPromise: Promise<number> | null = null
+  private _recording = false
+  private _recordStart: number = 0
+  private _recordFd: number | null = null
 
   readonly cols: number
   readonly rows: number
@@ -94,6 +99,10 @@ export class HeadlessTerminal {
     })
 
     this.pty.onData((data: string) => {
+      if (this._recording && this._recordFd !== null) {
+        const elapsed = (performance.now() - this._recordStart) / 1000
+        writeSync(this._recordFd, JSON.stringify([elapsed, "o", data]) + "\n")
+      }
       this.xterm.write(data)
     })
 
@@ -140,9 +149,10 @@ export class HeadlessTerminal {
   // Get plain text content of the screen
   getText(): string {
     const buffer = this.xterm.buffer.active
+    const base = buffer.viewportY
     const lines: string[] = []
     for (let y = 0; y < this.rows; y++) {
-      const line = buffer.getLine(y)
+      const line = buffer.getLine(base + y)
       if (line) {
         lines.push(line.translateToString(true))
       }
@@ -153,10 +163,11 @@ export class HeadlessTerminal {
   // Get the full cell grid with color/attribute info
   getCellGrid(): CellInfo[][] {
     const buffer = this.xterm.buffer.active
+    const base = buffer.viewportY
     const grid: CellInfo[][] = []
 
     for (let y = 0; y < this.rows; y++) {
-      const line = buffer.getLine(y)
+      const line = buffer.getLine(base + y)
       const row: CellInfo[] = []
       if (line) {
         for (let x = 0; x < this.cols; x++) {
@@ -220,6 +231,63 @@ export class HeadlessTerminal {
     }
   }
 
+  getBufferMeta(): {
+    totalLines: number
+    cursorX: number
+    cursorY: number
+    viewportTop: number
+    isAlternateBuffer: boolean
+  } {
+    const buf = this.xterm.buffer.active
+    return {
+      totalLines: buf.length,
+      cursorX: buf.cursorX,
+      cursorY: buf.cursorY,
+      viewportTop: buf.viewportY,
+      isAlternateBuffer: this.xterm.buffer.active.type === "alternate",
+    }
+  }
+
+  scrollToBottom(): void {
+    this.xterm.scrollToBottom()
+  }
+
+  scrollToLine(line: number): void {
+    this.xterm.scrollToLine(line)
+  }
+
+  get recording(): boolean {
+    return this._recording
+  }
+
+  startRecording(savePath: string): void {
+    mkdirSync(dirname(savePath), { recursive: true })
+    this._recordFd = openSync(savePath, "w")
+    const header = JSON.stringify({
+      version: 2,
+      width: this.cols,
+      height: this.rows,
+      timestamp: Math.floor(Date.now() / 1000),
+    })
+    writeSync(this._recordFd, header + "\n")
+    this._recordStart = performance.now()
+    this._recording = true
+
+    // Capture current screen state as the first frame
+    const snapshot = this.serialize.serialize()
+    if (snapshot) {
+      writeSync(this._recordFd, JSON.stringify([0, "o", snapshot]) + "\n")
+    }
+  }
+
+  stopRecording(): void {
+    this._recording = false
+    if (this._recordFd !== null) {
+      closeSync(this._recordFd)
+      this._recordFd = null
+    }
+  }
+
   kill(signal?: string): void {
     if (this.pty) {
       this.pty.kill(signal)
@@ -227,6 +295,7 @@ export class HeadlessTerminal {
   }
 
   destroy(): void {
+    if (this._recording) this.stopRecording()
     this.kill()
     this.xterm.dispose()
   }

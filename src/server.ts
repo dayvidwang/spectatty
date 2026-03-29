@@ -5,6 +5,8 @@ import { z } from "zod"
 import { HeadlessTerminal } from "./terminal"
 import { renderToPng } from "./renderer"
 import { sleep } from "./runtime"
+import { writeFile, mkdir } from "fs/promises"
+import { dirname } from "path"
 
 // Session management: map of session IDs to terminal instances
 const sessions = new Map<string, HeadlessTerminal>()
@@ -33,8 +35,9 @@ server.tool(
     rows: z.number().optional().describe("Terminal height in rows (default: 40)"),
     cwd: z.string().optional().describe("Working directory"),
     env: z.record(z.string()).optional().describe("Additional environment variables"),
+    recordingPath: z.string().optional().describe("If provided, start recording to this .cast file immediately on spawn"),
   },
-  async ({ shell, args, cols, rows, cwd, env }) => {
+  async ({ shell, args, cols, rows, cwd, env, recordingPath }) => {
     const id = `term-${nextId++}`
     const terminal = new HeadlessTerminal({
       cols: cols ?? 120,
@@ -44,6 +47,9 @@ server.tool(
       cwd,
       env,
     })
+    if (recordingPath) {
+      terminal.startRecording(recordingPath)
+    }
     await terminal.spawn({ shell, args, cwd, env })
     sessions.set(id, terminal)
 
@@ -98,17 +104,31 @@ server.tool(
 
 server.tool(
   "terminal_screenshot",
-  "Take a screenshot of the current terminal state. Returns both a PNG image and the text content.",
+  "Take a screenshot of the current terminal state. Returns both a PNG image and the text content. If the user asks to see a screenshot, use the savePath parameter to save it to a file they can open.",
   {
     sessionId: z.string().describe("Terminal session ID"),
     format: z
       .enum(["png", "text", "both"])
       .optional()
       .describe("Output format: png (image), text (plain text), or both (default: both)"),
+    savePath: z
+      .string()
+      .optional()
+      .describe("If provided, save the PNG screenshot to this file path"),
+    viewportTop: z
+      .number()
+      .optional()
+      .describe("Scroll to this absolute line number before capturing. If omitted, scrolls to the bottom (latest output). Use totalLines from a previous response to navigate."),
   },
-  async ({ sessionId, format }) => {
+  async ({ sessionId, format, savePath, viewportTop }) => {
     const terminal = getSession(sessionId)
     await terminal.flush()
+
+    if (viewportTop !== undefined) {
+      terminal.scrollToLine(viewportTop)
+    } else {
+      terminal.scrollToBottom()
+    }
 
     const fmt = format ?? "both"
     const content: Array<
@@ -131,7 +151,35 @@ server.tool(
         data: png.toString("base64"),
         mimeType: "image/png",
       })
+
+      if (savePath) {
+        await mkdir(dirname(savePath), { recursive: true })
+        await writeFile(savePath, png)
+        content.push({
+          type: "text" as const,
+          text: `Screenshot saved to ${savePath}`,
+        })
+      }
+    } else if (savePath) {
+      content.push({
+        type: "text" as const,
+        text: `savePath ignored because format is "text" (no PNG to save)`,
+      })
     }
+
+    const meta = terminal.getBufferMeta()
+    content.push({
+      type: "text" as const,
+      text: JSON.stringify({
+        totalLines: meta.totalLines,
+        cursorX: meta.cursorX,
+        cursorY: meta.cursorY,
+        viewportTop: meta.viewportTop,
+        isAlternateBuffer: meta.isAlternateBuffer,
+        cols: terminal.cols,
+        rows: terminal.rows,
+      }),
+    })
 
     return { content }
   },
@@ -194,19 +242,80 @@ server.tool(
 )
 
 server.tool(
-  "terminal_wait",
-  "Wait for terminal output to settle (useful after running a command)",
+  "terminal_send_scroll",
+  "Send scroll input to a terminal session (useful for navigating TUI applications with content above or below the viewport)",
   {
     sessionId: z.string().describe("Terminal session ID"),
-    ms: z.number().optional().describe("Milliseconds to wait (default: 500)"),
+    direction: z.enum(["up", "down"]).describe("Scroll direction"),
+    amount: z.number().optional().describe("Number of lines to scroll (default: 5). Use larger values like 40 for page-style scrolling."),
   },
-  async ({ sessionId, ms }) => {
+  async ({ sessionId, direction, amount }) => {
     const terminal = getSession(sessionId)
-    await sleep(ms ?? 500)
+    const lines = amount ?? 5
+    const seq = direction === "up"
+      ? `\x1b[${lines}S`
+      : `\x1b[${lines}T`
+
+    // For TUI apps, mouse scroll events are more reliable
+    for (let i = 0; i < lines; i++) {
+      const button = direction === "up" ? 65 : 64
+      terminal.write(`\x1b[<${button};1;1M`)
+      terminal.write(`\x1b[<${button};1;1m`)
+    }
+
+    await sleep(100)
     await terminal.flush()
 
+    const meta = terminal.getBufferMeta()
     return {
-      content: [{ type: "text" as const, text: terminal.getText() }],
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({
+          scrolled: `${direction} ${lines} lines`,
+          ...meta,
+        }),
+      }],
+    }
+  },
+)
+
+server.tool(
+  "terminal_record_start",
+  "Start recording terminal output as an asciicast v2 recording",
+  {
+    sessionId: z.string().describe("Terminal session ID"),
+    savePath: z.string().describe("File path to save the .cast recording"),
+  },
+  async ({ sessionId, savePath }) => {
+    const terminal = getSession(sessionId)
+    if (terminal.recording) {
+      return {
+        content: [{ type: "text" as const, text: `Session ${sessionId} is already recording` }],
+      }
+    }
+    terminal.startRecording(savePath)
+    return {
+      content: [{ type: "text" as const, text: `Started recording ${sessionId} to ${savePath}` }],
+    }
+  },
+)
+
+server.tool(
+  "terminal_record_stop",
+  "Stop recording and save the asciicast v2 (.cast) file",
+  {
+    sessionId: z.string().describe("Terminal session ID"),
+  },
+  async ({ sessionId }) => {
+    const terminal = getSession(sessionId)
+    if (!terminal.recording) {
+      return {
+        content: [{ type: "text" as const, text: `Session ${sessionId} is not recording` }],
+      }
+    }
+    terminal.stopRecording()
+    return {
+      content: [{ type: "text" as const, text: `Stopped recording ${sessionId}` }],
     }
   },
 )

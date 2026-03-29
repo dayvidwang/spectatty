@@ -29,11 +29,13 @@ Programs see a real terminal (colors, cursor movement, alternate screen, mouse s
 |------|-------------|
 | `terminal_spawn` | Spawn a new terminal session with a shell or command |
 | `terminal_write` | Send input — text, Enter (`\r`), Ctrl+C (`\x03`), Escape (`\e`), etc. |
-| `terminal_screenshot` | Capture the screen as PNG image, plain text, or both |
+| `terminal_screenshot` | Capture the screen as PNG, plain text, or both. Supports `savePath` to write the PNG to disk and `viewportTop` to scroll to a specific line before capturing |
 | `terminal_resize` | Change terminal dimensions |
-| `terminal_wait` | Wait for output to settle, then return text content |
 | `terminal_kill` | Kill a session and clean up |
 | `terminal_list` | List all active sessions |
+| `terminal_send_scroll` | Send scroll input (mouse scroll events) to navigate TUI content |
+| `terminal_record_start` | Start recording terminal output as an asciicast v2 (.cast) file |
+| `terminal_record_stop` | Stop recording and save the asciicast file |
 
 ## Install
 
@@ -83,12 +85,11 @@ An AI agent can use the tools to interact with any terminal application:
 
 ```
 1. terminal_spawn(shell: "vim", args: ["file.txt"], cols: 120, rows: 40)
-2. terminal_wait(sessionId: "term-1", ms: 1000)
-3. terminal_screenshot(sessionId: "term-1")          → see vim loaded
-4. terminal_write(sessionId: "term-1", data: "ihello world")
-5. terminal_write(sessionId: "term-1", data: "\e:wq\r")
-6. terminal_screenshot(sessionId: "term-1")          → see the result
-7. terminal_kill(sessionId: "term-1")
+2. terminal_screenshot(sessionId: "term-1")          → see vim loaded
+3. terminal_write(sessionId: "term-1", data: "ihello world")
+4. terminal_write(sessionId: "term-1", data: "\e:wq\r")
+5. terminal_screenshot(sessionId: "term-1")          → see the result
+6. terminal_kill(sessionId: "term-1")
 ```
 
 ## Stack
