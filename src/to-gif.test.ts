@@ -58,7 +58,7 @@ describe("castToGif", () => {
     const outputPath = tmpPath("output.gif")
     try {
       writeFileSync(inputPath, makeCastContent([[0.1, "i", "input-only"]]))
-      await expect(castToGif(inputPath, outputPath)).rejects.toThrow("No output frames")
+      await expect(castToGif(inputPath, outputPath)).rejects.toThrow()
     } finally {
       if (existsSync(inputPath)) unlinkSync(inputPath)
     }
@@ -98,9 +98,12 @@ describe("castToGif", () => {
   test("converts a real cast file", async () => {
     const { resolve, dirname } = await import("path")
     const { fileURLToPath } = await import("url")
+    if (!Bun.which("agg")) return // skip if agg not installed
     const assetsDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "assets")
-    const inputPath = join(assetsDir, "demo.cast")
-    if (!existsSync(inputPath)) return // skip if missing
+    // Prefer the smaller live-demo.cast; fall back to demo.cast
+    const candidates = ["live-demo.cast", "demo.cast"]
+    const inputPath = candidates.map(f => join(assetsDir, f)).find(p => existsSync(p))
+    if (!inputPath) return // skip if no reference cast available
     const outputPath = tmpPath("real.gif")
     try {
       await castToGif(inputPath, outputPath, { maxDelay: 500 })

@@ -5,11 +5,11 @@ An MCP server that provides headless terminal emulation. Spawn interactive termi
 Built for AI agents that need to interact with TUI applications, run commands in a real PTY, and visually inspect terminal output.
 
 <p align="center">
-  <img src="assets/htop.png" width="720" alt="htop system monitor running in a headless terminal" />
+  <img src="https://raw.githubusercontent.com/dayvidwang/spectatty/main/assets/htop.png" width="720" alt="htop system monitor running in a headless terminal" />
 </p>
 
 <p align="center">
-  <img src="assets/nvim.png" width="720" alt="Neovim with syntax highlighting" />
+  <img src="https://raw.githubusercontent.com/dayvidwang/spectatty/main/assets/nvim.png" width="720" alt="Neovim with syntax highlighting" />
 </p>
 
 ## Motivation
@@ -124,7 +124,7 @@ spectatty <subcommand>
 
 ## Install
 
-Requires [Bun](https://bun.sh) (v1.0+).
+Requires [Bun](https://bun.sh) (v1.0+). The `to-gif` and `to-mp4` commands also require [`agg`](https://github.com/asciinema/agg) and [`ffmpeg`](https://ffmpeg.org) respectively.
 
 ```bash
 bun install -g spectatty

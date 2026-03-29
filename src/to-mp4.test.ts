@@ -18,14 +18,6 @@ function tmpPath(name: string): string {
 }
 
 describe("castToMp4", () => {
-  test("h264-mp4-encoder WASM is compatible with Bun", async () => {
-    // Compat test: verify the encoder can be imported and initialized
-    const HME = await import("h264-mp4-encoder")
-    const encoder = await HME.default.createH264MP4Encoder()
-    expect(encoder).toBeDefined()
-    expect(typeof encoder.initialize).toBe("function")
-  })
-
   test("produces a non-empty output file", async () => {
     const inputPath = tmpPath("input.cast")
     const outputPath = tmpPath("output.mp4")

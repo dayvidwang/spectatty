@@ -56,29 +56,32 @@ async function probeEncoder(ffmpegPath: string): Promise<"libx264" | "h264_video
 }
 
 /**
- * Stream RGBA frames one-at-a-time to ffmpeg stdin.
- * Each key frame is written fps*delay times to hold for its duration.
- * Peak memory = O(1 frame) regardless of recording length.
+ * Convert an asciicast file to MP4. Requires `ffmpeg` to be installed.
+ * Streams frames one at a time — O(1 frame) memory regardless of recording length.
  */
-async function encodeWithFfmpeg(
-  cast: Parameters<typeof streamFrames>[0],
-  opts: Mp4Options,
-  fps: number,
-  crf: number,
-  bitrate: string,
+export async function castToMp4(
+  inputPath: string,
   outputPath: string,
-  ffmpegPath: string,
+  opts: Mp4Options = {},
 ): Promise<void> {
-  const encoder = await probeEncoder(ffmpegPath)
+  const fps = opts.fps ?? 30
+  const crf = opts.crf ?? 18
+  const bitrate = opts.bitrate ?? "4M"
   const frameMs = 1000 / fps
+
+  const ffmpegPath = await findFfmpeg()
+  if (!ffmpegPath) throw new Error("ffmpeg not found. Install it: https://ffmpeg.org/download.html")
+
+  const cast = await parseCastFile(inputPath)
+  const encoder = await probeEncoder(ffmpegPath)
+  const encodeArgs = encoder === "libx264"
+    ? ["-c:v", "libx264", "-crf", String(crf), "-pix_fmt", "yuv444p"]
+    : ["-c:v", "h264_videotoolbox", "-b:v", bitrate, "-pix_fmt", "yuv420p"]
+
   let proc: ReturnType<typeof Bun.spawn> | null = null
 
   for await (const frame of streamFrames(cast, opts)) {
-    // Lazily start ffmpeg on first frame once we know the dimensions
     if (!proc) {
-      const encodeArgs = encoder === "libx264"
-        ? ["-c:v", "libx264", "-crf", String(crf), "-pix_fmt", "yuv444p"]
-        : ["-c:v", "h264_videotoolbox", "-b:v", bitrate, "-pix_fmt", "yuv420p"]
       proc = Bun.spawn(
         [
           ffmpegPath, "-y",
@@ -107,58 +110,5 @@ async function encodeWithFfmpeg(
   if (exitCode !== 0) {
     const errText = await new Response(proc.stderr).text()
     throw new Error(`ffmpeg failed (exit ${exitCode}): ${errText}`)
-  }
-}
-
-/**
- * Convert an asciicast file to MP4.
- * Streams frames one at a time — O(1 frame) memory regardless of recording length.
- * Uses ffmpeg if available, falls back to WASM encoder.
- */
-export async function castToMp4(
-  inputPath: string,
-  outputPath: string,
-  opts: Mp4Options = {},
-): Promise<void> {
-  const fps = opts.fps ?? 30
-  const crf = opts.crf ?? 18
-  const bitrate = opts.bitrate ?? "4M"
-
-  const cast = await parseCastFile(inputPath)
-  const ffmpegPath = await findFfmpeg()
-
-  if (ffmpegPath) {
-    await encodeWithFfmpeg(cast, opts, fps, crf, bitrate, outputPath, ffmpegPath)
-    return
-  }
-
-  // WASM fallback: must buffer all frames (h264-mp4-encoder has no streaming API)
-  process.stderr.write("ffmpeg not found, using WASM encoder — buffering all frames (install ffmpeg for O(1) memory)...\n")
-  try {
-    const HME = await import("h264-mp4-encoder")
-    let encoder: Awaited<ReturnType<typeof HME.default.createH264MP4Encoder>> | null = null
-    const frameMs = 1000 / fps
-
-    for await (const frame of streamFrames(cast, opts)) {
-      if (!encoder) {
-        encoder = await HME.default.createH264MP4Encoder()
-        encoder.width = frame.width
-        encoder.height = frame.height
-        encoder.frameRate = fps
-        encoder.quantizationParameter = opts.crf ?? 18
-        encoder.initialize()
-      }
-      const repeatCount = Math.max(1, Math.round(frame.delay / frameMs))
-      for (let i = 0; i < repeatCount; i++) {
-        encoder.addFrameRgba(frame.data as unknown as Uint8Array)
-      }
-    }
-
-    if (!encoder) throw new Error("No output frames in cast file")
-    encoder.finalize()
-    const data: Uint8Array = encoder.FS.readFile(encoder.outputFilename)
-    await Bun.write(outputPath, data)
-  } catch (e) {
-    throw new Error(`WASM encoder failed: ${(e as Error).message}. Install ffmpeg and try again.`)
   }
 }
