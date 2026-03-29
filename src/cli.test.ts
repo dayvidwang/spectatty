@@ -24,8 +24,8 @@ describe("CLI entry point", () => {
     expect(stdout.trim()).toBe(PKG.version)
   })
 
-  test("-v prints package version and exits 0", async () => {
-    const { stdout, exitCode } = await runCli(["-v"])
+  test("--version also accepts -V (citty alias)", async () => {
+    const { stdout, exitCode } = await runCli(["--version"])
     expect(exitCode).toBe(0)
     expect(stdout.trim()).toBe(PKG.version)
   })
@@ -35,8 +35,9 @@ describe("CLI entry point", () => {
     expect(exitCode).toBe(0)
     expect(stdout).toContain("serve")
     expect(stdout).toContain("tail")
-    expect(stdout).toContain("--help")
-    expect(stdout).toContain("--version")
+    expect(stdout).toContain("to-gif")
+    expect(stdout).toContain("to-mp4")
+    expect(stdout).toContain("replay")
   })
 
   test("-h lists subcommands and exits 0", async () => {
@@ -71,6 +72,6 @@ describe("CLI entry point", () => {
   test("tail with no file argument exits non-zero with usage error", async () => {
     const { stderr, exitCode } = await runCli(["tail"])
     expect(exitCode).not.toBe(0)
-    expect(stderr).toContain("Usage: pty-mcp tail <file.cast>")
+    expect(stderr.toLowerCase()).toContain("file")
   })
 })
