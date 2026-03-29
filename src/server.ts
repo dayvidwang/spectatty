@@ -34,11 +34,11 @@ function userInputWarning(sessionId: string): string {
 const SERVER_PID = process.pid
 
 export function socketPathForSession(id: string): string {
-  return `/tmp/pty-mcp-${SERVER_PID}-${id}.sock`
+  return `/tmp/spectatty-${SERVER_PID}-${id}.sock`
 }
 
 export function controlSocketPathForSession(id: string): string {
-  return `/tmp/pty-mcp-${SERVER_PID}-${id}-ctrl.sock`
+  return `/tmp/spectatty-${SERVER_PID}-${id}-ctrl.sock`
 }
 
 // Tape logging: records MCP tool interactions per session
@@ -51,7 +51,7 @@ function getSession(id: string): HeadlessTerminal {
 }
 
 const server = new McpServer({
-  name: "pty-mcp",
+  name: "spectatty",
   version: "0.1.0",
 })
 
@@ -677,7 +677,7 @@ server.tool(
 
 server.tool(
   "terminal_export_tape",
-  "Export the current session's interaction log as a replayable .tape.json file. The tape records all spawn, write, and screenshot events and can be replayed with `pty-mcp replay` to produce a fresh .cast recording.",
+  "Export the current session's interaction log as a replayable .tape.json file. The tape records all spawn, write, and screenshot events and can be replayed with `spectatty replay` to produce a fresh .cast recording.",
   {
     sessionId: z.string().describe("Terminal session ID"),
     savePath: z.string().describe("File path to save the .tape.json file"),
@@ -764,10 +764,10 @@ process.on("SIGTERM", () => { cleanupSockets(); process.exit(143) })
 
 function cleanupStaleSockets(): void {
   // Remove socket files from dead server processes (identified by PID in filename)
-  // Pattern: /tmp/pty-mcp-<pid>-<id>.sock and /tmp/pty-mcp-<pid>-<id>-ctrl.sock
+  // Pattern: /tmp/spectatty-<pid>-<id>.sock and /tmp/spectatty-<pid>-<id>-ctrl.sock
   let files: string[]
   try {
-    files = readdirSync("/tmp").filter(f => /^pty-mcp-\d+-/.test(f))
+    files = readdirSync("/tmp").filter(f => /^spectatty-\d+-/.test(f))
   } catch { return }
   for (const f of files) {
     const pid = parseInt(f.split("-")[2], 10)
@@ -784,7 +784,7 @@ export async function startServer(): Promise<void> {
 }
 
 if (import.meta.main) {
-  process.stderr.write("Use `pty-mcp mcp` to start the MCP server.\n")
+  process.stderr.write("Use `spectatty mcp` to start the MCP server.\n")
   process.exit(1)
 }
 

@@ -6,7 +6,7 @@ import { join } from "path"
 import { writeFileSync, unlinkSync, existsSync } from "fs"
 
 function tmpPath(name: string): string {
-  return join(tmpdir(), `pty-mcp-tape-test-${Date.now()}-${name}`)
+  return join(tmpdir(), `spectatty-tape-test-${Date.now()}-${name}`)
 }
 
 const SAMPLE_EVENTS: TapeEvent[] = [

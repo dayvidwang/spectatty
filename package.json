@@ -1,12 +1,12 @@
 {
-  "name": "pty-mcp",
+  "name": "spectatty",
   "version": "0.1.0",
   "type": "module",
   "description": "MCP server for headless terminal emulation — spawn PTY sessions, send keystrokes, capture screenshots",
   "license": "MIT",
   "keywords": ["mcp", "terminal", "pty", "headless", "xterm", "model-context-protocol"],
   "bin": {
-    "pty-mcp": "src/cli.ts"
+    "spectatty": "src/cli.ts"
   },
   "files": [
     "src/cli.ts",
@@ -22,12 +22,14 @@
     "src/to-gif.ts",
     "src/to-mp4.ts",
     "src/tape.ts",
+    "src/daemon.ts",
+    "src/client.ts",
     "assets/",
     "README.md"
   ],
   "scripts": {
-    "start": "bun src/server.ts",
-    "dev": "bun --watch src/server.ts",
+    "start": "bun src/cli.ts mcp",
+    "dev": "bun --watch src/cli.ts mcp",
     "test": "bun vitest run"
   },
   "dependencies": {

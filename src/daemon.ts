@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * pty-mcp daemon — manages terminal sessions over a Unix socket.
+ * spectatty daemon — manages terminal sessions over a Unix socket.
  * Exposes the same capabilities as the MCP server via a simple NDJSON protocol.
  *
  * Protocol (one connection = one request/response):
@@ -20,7 +20,7 @@ import { dirname, resolve } from "path"
 import { homedir } from "os"
 import { createServer as createNetServer, type Server as NetServer, type Socket as NetSocket } from "net"
 
-export const DAEMON_DIR = resolve(homedir(), ".pty-mcp")
+export const DAEMON_DIR = resolve(homedir(), ".spectatty")
 export const SOCKET_PATH = resolve(DAEMON_DIR, "daemon.sock")
 export const PID_PATH = resolve(DAEMON_DIR, "daemon.pid")
 
@@ -37,11 +37,11 @@ const sessionCleanup = new Map<string, () => void>()
 const tapeLogs = new Map<string, TapeEvent[]>()
 
 function socketPathForSession(id: string): string {
-  return `/tmp/pty-mcp-${DAEMON_PID}-${id}.sock`
+  return `/tmp/spectatty-${DAEMON_PID}-${id}.sock`
 }
 
 function controlSocketPathForSession(id: string): string {
-  return `/tmp/pty-mcp-${DAEMON_PID}-${id}-ctrl.sock`
+  return `/tmp/spectatty-${DAEMON_PID}-${id}-ctrl.sock`
 }
 
 function getSession(id: string): HeadlessTerminal {
@@ -517,7 +517,7 @@ function cleanupAll() {
 function cleanupStaleSockets() {
   let files: string[]
   try {
-    files = readdirSync("/tmp").filter(f => /^pty-mcp-\d+-/.test(f))
+    files = readdirSync("/tmp").filter(f => /^spectatty-\d+-/.test(f))
   } catch { return }
   for (const f of files) {
     const pid = parseInt(f.split("-")[2], 10)
@@ -541,7 +541,7 @@ export async function startDaemon(): Promise<void> {
 
   const server = createNetServer(handleConnection)
   server.listen(SOCKET_PATH, () => {
-    process.stderr.write(`pty-mcp daemon started (pid ${DAEMON_PID})\n`)
+    process.stderr.write(`spectatty daemon started (pid ${DAEMON_PID})\n`)
     process.stderr.write(`Socket: ${SOCKET_PATH}\n`)
   })
 

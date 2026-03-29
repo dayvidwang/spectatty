@@ -14,7 +14,7 @@ function makeCastContent(events: Array<[number, string, string]> = []): string {
 }
 
 function tmpPath(name: string): string {
-  return join(tmpdir(), `pty-mcp-mp4-test-${Date.now()}-${name}`)
+  return join(tmpdir(), `spectatty-mp4-test-${Date.now()}-${name}`)
 }
 
 describe("castToMp4", () => {

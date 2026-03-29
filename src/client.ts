@@ -1,5 +1,5 @@
 /**
- * pty-mcp CLI client — communicates with the daemon over a Unix socket.
+ * spectatty CLI client — communicates with the daemon over a Unix socket.
  */
 
 import { createConnection } from "net"
@@ -10,7 +10,7 @@ import { homedir } from "os"
 import { fileURLToPath } from "url"
 import { dirname } from "path"
 
-export const DAEMON_DIR = resolve(homedir(), ".pty-mcp")
+export const DAEMON_DIR = resolve(homedir(), ".spectatty")
 export const SOCKET_PATH = resolve(DAEMON_DIR, "daemon.sock")
 export const PID_PATH = resolve(DAEMON_DIR, "daemon.pid")
 
@@ -21,7 +21,7 @@ export async function request(method: string, params: Record<string, unknown> = 
 
     socket.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "ENOENT" || err.code === "ECONNREFUSED") {
-        reject(new Error("Daemon not running. Start it with: pty-mcp server start"))
+        reject(new Error("Daemon not running. Start it with: spectatty server start"))
       } else {
         reject(err)
       }
@@ -93,12 +93,12 @@ async function waitForSocket(maxMs = 3000): Promise<boolean> {
 export async function ensureDaemon(): Promise<void> {
   if (await isDaemonRunning()) return
 
-  process.stderr.write("Starting pty-mcp daemon...\n")
+  process.stderr.write("Starting spectatty daemon...\n")
   await spawnDaemon()
 
   const ok = await waitForSocket(3000)
   if (!ok) {
-    printError("Failed to start daemon. Try: pty-mcp server start")
+    printError("Failed to start daemon. Try: spectatty server start")
   }
 }
 

@@ -13,7 +13,7 @@ function makeCastContent(events: Array<[number, string, string]> = []): string {
 }
 
 function tmpPath(name: string): string {
-  return join(tmpdir(), `pty-mcp-gif-test-${Date.now()}-${name}`)
+  return join(tmpdir(), `spectatty-gif-test-${Date.now()}-${name}`)
 }
 
 describe("castToGif", () => {

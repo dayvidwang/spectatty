@@ -94,7 +94,7 @@ const toMp4Cmd = defineCommand({
 })
 
 const attachCmd = defineCommand({
-  meta: { name: "attach", description: "Attach your terminal to a live pty-mcp session for real-time collaboration" },
+  meta: { name: "attach", description: "Attach your terminal to a live spectatty session for real-time collaboration" },
   args: {
     sessionId: { type: "positional", description: "Session ID to attach to (e.g. term-1)", required: true },
   },
@@ -115,7 +115,7 @@ const attachCmd = defineCommand({
       socketPath = session.attachSocket
       ctrlSocketPath = session.ctrlSocket
     } catch {
-      process.stderr.write(`Could not reach daemon. Is the daemon running? Try: pty-mcp server status\n`)
+      process.stderr.write(`Could not reach daemon. Is the daemon running? Try: spectatty server status\n`)
       process.exit(1)
     }
 
@@ -123,7 +123,7 @@ const attachCmd = defineCommand({
 
     socket.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "ENOENT") {
-        process.stderr.write(`No active session: ${args.sessionId}\nIs the pty-mcp server running?\n`)
+        process.stderr.write(`No active session: ${args.sessionId}\nIs the spectatty server running?\n`)
       } else {
         process.stderr.write(`Connection error: ${err.message}\n`)
       }
@@ -244,7 +244,7 @@ const serverStartCmd = defineCommand({
     const { fileURLToPath } = await import("url")
     const { mkdir } = await import("fs/promises")
     const { homedir } = await import("os")
-    const daemonDir = resolvePath(homedir(), ".pty-mcp")
+    const daemonDir = resolvePath(homedir(), ".spectatty")
     await mkdir(daemonDir, { recursive: true })
 
     const daemonPath = resolvePath(resolvePath(fileURLToPath(import.meta.url), ".."), "daemon.ts")
@@ -268,7 +268,7 @@ const serverStartCmd = defineCommand({
         } catch {}
       }
     }
-    process.stderr.write("Daemon may still be starting. Try `pty-mcp server status`.\n")
+    process.stderr.write("Daemon may still be starting. Try `spectatty server status`.\n")
   },
 })
 
@@ -318,7 +318,7 @@ const serverStatusCmd = defineCommand({
 })
 
 const serverCmd = defineCommand({
-  meta: { name: "server", description: "Manage the pty-mcp daemon" },
+  meta: { name: "server", description: "Manage the spectatty daemon" },
   subCommands: {
     start: serverStartCmd,
     stop: serverStopCmd,
@@ -655,7 +655,7 @@ const replayTapeCmd = defineCommand({
 
 const main = defineCommand({
   meta: {
-    name: "pty-mcp",
+    name: "spectatty",
     version: getVersion(),
     description: "Headless terminal MCP server and media export toolkit",
   },
