@@ -1,4 +1,7 @@
 [tools]
+"aqua:asciinema/agg" = "latest"
 bun = "latest"
+claude = "latest"
+ffmpeg = "latest"
 pipx = "latest"
 "ubi:asciinema/asciinema" = "latest"

@@ -102,6 +102,30 @@ An AI agent can use the tools to interact with any terminal application:
 | HTML serialization | [@xterm/addon-serialize](https://www.npmjs.com/package/@xterm/addon-serialize) |
 | MCP server | [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/typescript-sdk) |
 
+## Design notes
+
+### Why not compose tmux + asciinema?
+
+The obvious alternative to a native PTY implementation is to shell out to existing tools:
+
+- **[asciinema](https://asciinema.org)** — records terminal sessions as timestamped asciicast streams
+- **[VHS](https://github.com/charmbracelet/vhs)** — drives a headless terminal via a tape script, produces GIF/MP4/SVG
+- **[tmux](https://github.com/tmux/tmux)** — terminal multiplexer with session persistence and human attach
+
+Each solves a real problem. pty-mcp needs to solve all of them simultaneously, for an AI agent that needs to both drive and observe a terminal in real time.
+
+**The core issue with composition:**
+
+`tmux capture-pane` is snapshot-only — you poll it. There's no event-driven "here is the new rendered frame." `tmux pipe-pane` streams raw PTY bytes, which is closer, but then you still need to parse those bytes into a cell grid to produce screenshots. You'd end up reimplementing the renderer anyway, with an extra subprocess hop in the middle.
+
+The fundamental property pty-mcp needs is: **rendered state always current, zero polling**. That requires owning the PTY directly so xterm.js can process every byte in-process as it arrives.
+
+VHS is the closest spiritual predecessor — it drives a headless terminal and renders output. The difference is that VHS is a batch tool (script in → video out), while pty-mcp is interactive (AI agent drives the session live, takes screenshots at arbitrary points, waits for patterns, keeps the session alive indefinitely).
+
+**What tmux is still good for:**
+
+Human attach. `tmux attach -t session` is a much better experience than `socat - UNIX-CONNECT:/tmp/pty-mcp-term-1.sock`. pty-mcp's attach socket is equivalent to `tmux pipe-pane` — raw byte streaming — but tmux's attach is a fully rendered interactive session. If you want a human to observe an AI-driven terminal session live, wrapping the spawn in a tmux session is a reasonable addition.
+
 ## License
 
 MIT

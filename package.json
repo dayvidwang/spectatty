@@ -8,7 +8,23 @@
   "bin": {
     "pty-mcp": "src/cli.ts"
   },
-  "files": ["src/cli.ts", "src/server.ts", "src/cast-tail.ts", "src/terminal.ts", "src/renderer.ts", "src/pty.ts", "src/runtime.ts", "assets/", "README.md"],
+  "files": [
+    "src/cli.ts",
+    "src/server.ts",
+    "src/cast-tail.ts",
+    "src/terminal.ts",
+    "src/renderer.ts",
+    "src/pty.ts",
+    "src/runtime.ts",
+    "src/themes.ts",
+    "src/cast-parser.ts",
+    "src/frame-generator.ts",
+    "src/to-gif.ts",
+    "src/to-mp4.ts",
+    "src/tape.ts",
+    "assets/",
+    "README.md"
+  ],
   "scripts": {
     "start": "bun src/server.ts",
     "dev": "bun --watch src/server.ts",
@@ -16,10 +32,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "@xterm/headless": "^6.0.0",
-    "@xterm/addon-serialize": "^0.14.0",
     "@napi-rs/canvas": "^0.1.94",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
     "bun-pty": "^0.4.8",
+    "citty": "^0.2.1",
+    "gifenc": "^1.0.3",
+    "h264-mp4-encoder": "^1.0.12",
     "zod": "^3.25.0"
   },
   "devDependencies": {
