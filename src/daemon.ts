@@ -15,7 +15,7 @@ import { sleep } from "./runtime"
 import { createTapeFile, replayTapeToSession } from "./tape"
 import type { TapeEvent } from "./tape"
 import type { DaemonHandlers, ScreenshotResult, BufferMeta } from "./protocol"
-import { writeFile, mkdir, unlink, rm } from "fs/promises"
+import { writeFile, mkdir, unlink } from "fs/promises"
 import { unlinkSync, readdirSync } from "fs"
 import { dirname, resolve } from "path"
 import { homedir } from "os"
@@ -440,7 +440,6 @@ function handleRecordStop(params: Record<string, unknown>) {
 // --- Request dispatcher ---
 
 // Typed dispatch table — TypeScript will error here if a DaemonMethod is missing
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const HANDLERS: DaemonHandlers = {
   terminal_spawn:        (p) => handleSpawn(p as any),
   terminal_type:         (p) => handleType(p as any),
@@ -464,7 +463,6 @@ async function dispatch(method: string, params: Record<string, unknown>): Promis
   if (method === "ping") return { pong: true, sessions: sessions.size, pid: DAEMON_PID }
   const handler = HANDLERS[method as keyof DaemonHandlers]
   if (!handler) throw new Error(`Unknown method: ${method}`)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return handler(params as any)
 }
 

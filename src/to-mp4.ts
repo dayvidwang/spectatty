@@ -145,7 +145,7 @@ export async function castToMp4(
         encoder.width = frame.width
         encoder.height = frame.height
         encoder.frameRate = fps
-        encoder.quantizationParameter = opts.qp ?? 18
+        encoder.quantizationParameter = opts.crf ?? 18
         encoder.initialize()
       }
       const repeatCount = Math.max(1, Math.round(frame.delay / frameMs))

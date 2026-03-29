@@ -298,8 +298,7 @@ const serverStopCmd = defineCommand({
 const serverStatusCmd = defineCommand({
   meta: { name: "status", description: "Show daemon status and active sessions" },
   async run() {
-    const { request, SOCKET_PATH, PID_PATH } = await import("./client")
-    const { readFile } = await import("fs/promises")
+    const { request, SOCKET_PATH } = await import("./client")
     const { existsSync } = await import("fs")
 
     if (!existsSync(SOCKET_PATH)) {
@@ -307,7 +306,6 @@ const serverStatusCmd = defineCommand({
       process.exit(1)
     }
     try {
-      const pidStr = await readFile(PID_PATH, "utf8").catch(() => "?")
       const result = await request("ping") as { pong: boolean; sessions: number; pid: number }
       process.stdout.write(JSON.stringify({ running: true, pid: result.pid, sessions: result.sessions }, null, 2) + "\n")
     } catch {
@@ -660,9 +658,7 @@ const main = defineCommand({
     description: "Headless terminal MCP server and media export toolkit",
   },
   subCommands: {
-    // Daemon lifecycle
     server: serverCmd,
-    // Terminal operations (connect to daemon)
     spawn: spawnCmd,
     list: listCmd,
     type: typeCmd,
@@ -679,7 +675,6 @@ const main = defineCommand({
     "record-stop": recordStopCmd,
     "export-tape": exportTapeCmd,
     "replay-tape": replayTapeCmd,
-    // Existing commands (unchanged)
     mcp: mcpCmd,
     attach: attachCmd,
     tail: tailCmd,
