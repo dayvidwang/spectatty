@@ -1,6 +1,7 @@
 import { describe, test, expect } from "vitest"
-import { renderToPng } from "./renderer"
+import { renderToPng, renderToRgba } from "./renderer"
 import type { CellInfo } from "./terminal"
+import { getTheme } from "./themes"
 
 function makeCell(char = " ", overrides: Partial<CellInfo> = {}): CellInfo {
   return {
@@ -112,5 +113,46 @@ describe("renderToPng", () => {
   test("handles empty grid gracefully", () => {
     const png = renderToPng([], 0, 0)
     expect(png).toBeInstanceOf(Buffer)
+  })
+
+  test("theme changes background color", () => {
+    const grid = makeGrid(10, 3)
+    const defaultPng = renderToPng(grid, 10, 3, { theme: getTheme("default") })
+    const draculaPng = renderToPng(grid, 10, 3, { theme: getTheme("dracula") })
+    // Different themes produce different images
+    expect(defaultPng).not.toEqual(draculaPng)
+  })
+
+  test("chrome adds height to output image", () => {
+    const grid = makeGrid(10, 3)
+    const plain = renderToPng(grid, 10, 3)
+    const withChrome = renderToPng(grid, 10, 3, { chrome: { enabled: true, title: "Terminal" } })
+    expect(withChrome.length).toBeGreaterThan(plain.length)
+  })
+})
+
+describe("renderToRgba", () => {
+  test("returns RGBA data with correct dimensions", () => {
+    const grid = makeGrid(10, 5)
+    const { data, width, height } = renderToRgba(grid, 10, 5)
+    expect(width).toBeGreaterThan(0)
+    expect(height).toBeGreaterThan(0)
+    expect(data.length).toBe(width * height * 4)
+  })
+
+  test("RGBA data matches PNG pixel content", () => {
+    const grid = makeGrid(5, 3)
+    const { data } = renderToRgba(grid, 5, 3)
+    // All pixels should have alpha=255 (fully opaque)
+    for (let i = 3; i < data.length; i += 4) {
+      expect(data[i]).toBe(255)
+    }
+  })
+
+  test("chrome increases canvas height in RGBA output", () => {
+    const grid = makeGrid(10, 3)
+    const { height: plain } = renderToRgba(grid, 10, 3)
+    const { height: withChrome } = renderToRgba(grid, 10, 3, { chrome: { enabled: true } })
+    expect(withChrome).toBeGreaterThan(plain)
   })
 })
