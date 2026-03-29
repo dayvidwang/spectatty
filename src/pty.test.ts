@@ -1,6 +1,6 @@
 import { describe, test, expect } from "vitest"
-import { spawnPty, isBun } from "./pty"
-import { sleep } from "./runtime"
+import { spawnPty } from "./pty"
+import { sleep, isBun } from "./runtime"
 
 describe("PTY abstraction layer", () => {
   test("detects the current runtime", () => {

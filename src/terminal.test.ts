@@ -164,10 +164,51 @@ describe("HeadlessTerminal", () => {
     await sleep(100)
     await term.flush()
 
-    // getCellGrid uses the original constructor dimensions
+    // After resize, getCellGrid uses the updated dimensions
     const grid = term.getCellGrid()
-    expect(grid.length).toBe(24)
-    expect(grid[0].length).toBe(80)
+    expect(grid.length).toBe(40)
+    expect(grid[0].length).toBe(120)
+  })
+
+  test("resize updates cols and rows properties", async () => {
+    const term = createTerminal({ cols: 80, rows: 24 })
+    expect(term.cols).toBe(80)
+    expect(term.rows).toBe(24)
+
+    await term.spawn({ shell: "/bin/cat" })
+    await sleep(100)
+
+    term.resize(120, 40)
+    expect(term.cols).toBe(120)
+    expect(term.rows).toBe(40)
+
+    await sleep(100)
+    await term.flush()
+
+    // getText should reflect the new dimensions
+    const text = term.getText()
+    const lines = text.split("\n")
+    expect(lines.length).toBe(40)
+  })
+
+  test("resize propagates to xterm and pty", async () => {
+    const term = createTerminal({ cols: 80, rows: 24 })
+    await term.spawn({ shell: "/bin/sh" })
+    await sleep(300)
+    await term.flush()
+
+    term.resize(60, 15)
+    await sleep(200)
+    await term.flush()
+
+    // Query dimensions after resize via $COLUMNS and $LINES which sh updates on SIGWINCH
+    term.write("echo COLS=$COLUMNS ROWS=$LINES\n")
+    await sleep(300)
+    await term.flush()
+
+    const text = term.getText()
+    expect(text).toContain("COLS=60")
+    expect(text).toContain("ROWS=15")
   })
 
   test("getHTML returns HTML string", async () => {

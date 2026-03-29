@@ -63,8 +63,8 @@ export class HeadlessTerminal {
   private _recordStart: number = 0
   private _recordFd: number | null = null
 
-  readonly cols: number
-  readonly rows: number
+  cols: number
+  rows: number
 
   constructor(options: TerminalOptions = {}) {
     this.cols = options.cols ?? 80
@@ -123,6 +123,8 @@ export class HeadlessTerminal {
   resize(cols: number, rows: number): void {
     if (this.pty) this.pty.resize(cols, rows)
     this.xterm.resize(cols, rows)
+    this.cols = cols
+    this.rows = rows
   }
 
   // Wait for xterm to finish parsing all pending data

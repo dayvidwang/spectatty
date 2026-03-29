@@ -1,0 +1,7 @@
+commands:
+  install: bun install
+  test: bun vitest run
+  typecheck: bun tsc --noEmit
+  dev: bun run dev
+
+services: {}

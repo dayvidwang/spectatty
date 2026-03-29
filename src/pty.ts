@@ -22,10 +22,6 @@ export interface PtyProcess {
   onExit(listener: (e: { exitCode: number; signal?: number | string }) => void): { dispose(): void }
 }
 
-// ── Runtime detection ────────────────────────────────────────────────────────
-
-export const isBun = typeof globalThis.Bun !== "undefined"
-
 // ── Spawn ────────────────────────────────────────────────────────────────────
 
 /**

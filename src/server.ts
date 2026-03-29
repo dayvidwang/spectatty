@@ -65,6 +65,7 @@ server.tool(
             sessionId: id,
             cols: terminal.cols,
             rows: terminal.rows,
+            ...(recordingPath ? { recordingPath } : {}),
           }),
         },
       ],
@@ -252,9 +253,6 @@ server.tool(
   async ({ sessionId, direction, amount }) => {
     const terminal = getSession(sessionId)
     const lines = amount ?? 5
-    const seq = direction === "up"
-      ? `\x1b[${lines}S`
-      : `\x1b[${lines}T`
 
     // For TUI apps, mouse scroll events are more reliable
     for (let i = 0; i < lines; i++) {
