@@ -1,4 +1,4 @@
-# spectatty
+# spectatty (spectate-tty)
 
 A toolkit for building TUI applications with AI agents. Agents can spawn real terminal sessions, interact with them like a human would, screenshot the rendered output, and share live sessions with you -- so they can actually see and debug the UI as they build it, rather than guessing from raw text.
 
@@ -85,13 +85,14 @@ spectatty <subcommand>
 | ---------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `mcp`                              | Start the MCP server on stdio                                                                  |
 | `server start/stop/status`         | Manage the background daemon                                                                   |
+| `ctl <subcommand>`                 | Control terminal sessions (mirrors all MCP tools -- see below)                                 |
 | `attach <sessionId>`               | Attach your terminal to a live session. Ctrl+] then `d` to detach.                             |
 | `tail <file.cast>`                 | Live-tail an asciicast recording as it's being written                                         |
 | `to-gif <input.cast> <output.gif>` | Convert a recording to an animated GIF (uses `agg` if available, JS fallback otherwise)        |
 | `to-mp4 <input.cast> <output.mp4>` | Convert a recording to MP4 (uses `ffmpeg` if available, WASM fallback otherwise)               |
 | `replay <file.tape.json>`          | Replay a tape file. Produces a `.cast` by default; `--live` replays into the current terminal. |
 
-All MCP tools are also exposed as CLI subcommands (`spawn`, `type`, `key`, `ctrl`, `write`, `screenshot`, `wait-for`, `resize`, `kill`, `scroll`, `mouse`, `record-start`, `record-stop`, `export-tape`, `replay-tape`) if the agent or user prefers to use a CLI instead of an MCP client.
+`spectatty ctl` exposes every MCP tool as a subcommand for scripting and debugging: `spawn`, `list`, `type`, `key`, `ctrl`, `write`, `screenshot`, `resize`, `kill`, `scroll`, `mouse`, `wait-for`, `record-start`, `record-stop`, `export-tape`, `replay-tape`.
 
 ## Install
 

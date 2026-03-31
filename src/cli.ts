@@ -163,7 +163,7 @@ const attachCmd = defineCommand({
             cleanup()
             process.exit(0)
           }
-          // Not a detach command — forward the prefix byte then the new data
+          // Not a detach command - forward the prefix byte then the new data
           socket.write(Buffer.from([PREFIX]))
           socket.write(buf)
           return
@@ -651,14 +651,9 @@ const replayTapeCmd = defineCommand({
   },
 })
 
-const main = defineCommand({
-  meta: {
-    name: "spectatty",
-    version: getVersion(),
-    description: "Headless terminal MCP server and media export toolkit",
-  },
+const ctlCmd = defineCommand({
+  meta: { name: "ctl", description: "Control terminal sessions via the daemon" },
   subCommands: {
-    server: serverCmd,
     spawn: spawnCmd,
     list: listCmd,
     type: typeCmd,
@@ -675,7 +670,19 @@ const main = defineCommand({
     "record-stop": recordStopCmd,
     "export-tape": exportTapeCmd,
     "replay-tape": replayTapeCmd,
+  },
+})
+
+const main = defineCommand({
+  meta: {
+    name: "spectatty",
+    version: getVersion(),
+    description: "Headless terminal MCP server and media export toolkit",
+  },
+  subCommands: {
     mcp: mcpCmd,
+    server: serverCmd,
+    ctl: ctlCmd,
     attach: attachCmd,
     tail: tailCmd,
     "to-gif": toGifCmd,
