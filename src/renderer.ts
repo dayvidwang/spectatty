@@ -8,10 +8,10 @@ import { DEFAULT_THEME } from "./themes"
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const assetsDir = join(__dirname, "..", "assets")
 
-GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Regular.ttf"), "JetBrainsMono")
-GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Bold.ttf"), "JetBrainsMono")
-GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Italic.ttf"), "JetBrainsMono")
-GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-BoldItalic.ttf"), "JetBrainsMono")
+GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Regular.ttf"),    "JetBrainsMono-Regular")
+GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Bold.ttf"),       "JetBrainsMono-Bold")
+GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Italic.ttf"),     "JetBrainsMono-Italic")
+GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-BoldItalic.ttf"), "JetBrainsMono-BoldItalic")
 
 // Register system fallback fonts for glyphs not covered by JetBrains Mono
 // (braille spinner chars, emoji, misc symbols). Silently skip if unavailable.
@@ -40,12 +40,12 @@ export interface ChromeOptions {
 
 export interface RenderOptions {
   fontSize?: number
-  fontFamily?: string
   cellWidth?: number
   cellHeight?: number
   padding?: number
   theme?: Theme
   chrome?: ChromeOptions
+  devicePixelRatio?: number
 }
 
 const CHROME_BAR_HEIGHT = 28
@@ -57,53 +57,60 @@ const CHROME_DOTS = [
   { x: 42, color: "#28c840" },
 ]
 
-function measureCellWidth(fontSize: number, fontFamily: string): number {
+function measureCellWidth(fontSize: number): number {
   const c = createCanvas(100, 100)
   const ctx = c.getContext("2d")
-  ctx.font = `${fontSize}px ${fontFamily}`
-  // Ceil to integer so every character lands on a whole pixel boundary
+  ctx.font = `${fontSize}px JetBrainsMono-Regular`
   return Math.ceil(ctx.measureText("M").width)
+}
+
+function fontFace(bold: boolean, italic: boolean): string {
+  if (bold && italic) return "JetBrainsMono-BoldItalic"
+  if (bold)           return "JetBrainsMono-Bold"
+  if (italic)         return "JetBrainsMono-Italic"
+  return "JetBrainsMono-Regular"
 }
 
 interface ResolvedOptions {
   fontSize: number
-  fontFamily: string
   cellWidth: number
   cellHeight: number
   padding: number
   theme: Theme
   chrome: ChromeOptions
+  dpr: number
 }
 
 function resolveOptions(options: RenderOptions): ResolvedOptions {
   const fontSize = options.fontSize ?? 14
-  const fontFamily = options.fontFamily ?? "JetBrainsMono"
-  const cellWidth = options.cellWidth ?? measureCellWidth(fontSize, fontFamily)
+  const cellWidth = options.cellWidth ?? measureCellWidth(fontSize)
   const cellHeight = options.cellHeight ?? 18
   const padding = options.padding ?? 8
   const theme = options.theme ?? DEFAULT_THEME
   const chrome = options.chrome ?? { enabled: false }
-  return { fontSize, fontFamily, cellWidth, cellHeight, padding, theme, chrome }
+  const dpr = options.devicePixelRatio ?? 2
+  return { fontSize, cellWidth, cellHeight, padding, theme, chrome, dpr }
 }
 
 function buildCanvas(grid: CellInfo[][], cols: number, rows: number, opts: ResolvedOptions): Canvas {
+  const { dpr } = opts
   const chromeHeight = opts.chrome.enabled ? CHROME_BAR_HEIGHT : 0
-  const width = Math.ceil(cols * opts.cellWidth + opts.padding * 2)
-  const height = Math.ceil(rows * opts.cellHeight + opts.padding * 2) + chromeHeight
+  const logicalWidth  = Math.ceil(cols * opts.cellWidth  + opts.padding * 2)
+  const logicalHeight = Math.ceil(rows * opts.cellHeight + opts.padding * 2) + chromeHeight
 
-  const canvas = createCanvas(width, height)
+  const canvas = createCanvas(logicalWidth * dpr, logicalHeight * dpr)
   const ctx = canvas.getContext("2d")
+  ctx.scale(dpr, dpr)
 
   // Background
   ctx.fillStyle = opts.theme.bg
-  ctx.fillRect(0, 0, width, height)
+  ctx.fillRect(0, 0, logicalWidth, logicalHeight)
 
   // Chrome title bar
   if (opts.chrome.enabled) {
     ctx.fillStyle = "#3c3c3c"
-    ctx.fillRect(0, 0, width, CHROME_BAR_HEIGHT)
+    ctx.fillRect(0, 0, logicalWidth, CHROME_BAR_HEIGHT)
 
-    // Traffic lights
     for (const dot of CHROME_DOTS) {
       ctx.fillStyle = dot.color
       ctx.beginPath()
@@ -111,13 +118,12 @@ function buildCanvas(grid: CellInfo[][], cols: number, rows: number, opts: Resol
       ctx.fill()
     }
 
-    // Title text
     if (opts.chrome.title) {
       ctx.fillStyle = "#c0c0c0"
-      ctx.font = `11px ${opts.fontFamily}`
+      ctx.font = `11px JetBrainsMono-Regular`
       ctx.textAlign = "center"
       ctx.textBaseline = "middle"
-      ctx.fillText(opts.chrome.title, width / 2, CHROME_DOT_Y_OFFSET)
+      ctx.fillText(opts.chrome.title, logicalWidth / 2, CHROME_DOT_Y_OFFSET)
       ctx.textAlign = "left"
     }
   }
@@ -134,24 +140,18 @@ function buildCanvas(grid: CellInfo[][], cols: number, rows: number, opts: Resol
       const fg = cell.inverse ? cell.bg : cell.fg
       const bg = cell.inverse ? cell.fg : cell.bg
 
-      // Draw background if not default
       if (bg !== opts.theme.bg) {
         ctx.fillStyle = bg
         ctx.fillRect(px, py, opts.cellWidth, opts.cellHeight)
       }
 
-      // Draw character
       if (cell.char && cell.char !== " ") {
-        let fontStyle = ""
-        if (cell.bold) fontStyle += "bold "
-        if (cell.italic) fontStyle += "italic "
-        ctx.font = `${fontStyle}${opts.fontSize}px ${opts.fontFamily}${FONT_STACK_SUFFIX}`
+        ctx.font = `${opts.fontSize}px ${fontFace(cell.bold, cell.italic)}${FONT_STACK_SUFFIX}`
         ctx.fillStyle = cell.dim ? dimColor(fg) : fg
         ctx.textBaseline = "top"
         ctx.fillText(cell.char, px, py + 2)
       }
 
-      // Underline
       if (cell.underline) {
         ctx.strokeStyle = fg
         ctx.lineWidth = 1
@@ -161,7 +161,6 @@ function buildCanvas(grid: CellInfo[][], cols: number, rows: number, opts: Resol
         ctx.stroke()
       }
 
-      // Strikethrough
       if (cell.strikethrough) {
         ctx.strokeStyle = fg
         ctx.lineWidth = 1
