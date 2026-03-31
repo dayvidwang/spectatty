@@ -143,7 +143,7 @@ describe("cast-tail", () => {
     const event2 = JSON.stringify([0.1, "o", "World\r\n"])
     writeFileSync(castFile, [header, event1, event2].join("\n") + "\n")
 
-    // Run tail — it will replay events then wait forever. Kill after we get output.
+    // Run tail - it will replay events then wait forever. Kill after we get output.
     const { proc, result } = runTailBg([castFile])
 
     // Wait for output to appear
@@ -188,7 +188,7 @@ describe("cast-tail", () => {
   test(
     "/dev/null (empty device file) handles gracefully",
     async () => {
-      // /dev/null reads as empty — should trigger empty file timeout or similar
+      // /dev/null reads as empty - should trigger empty file timeout or similar
       const { exitCode } = await runTail(["/dev/null"], { timeout: 8000 })
       // Should not crash; exits non-zero because no header found
       expect(exitCode).not.toBe(0)
@@ -203,7 +203,7 @@ describe("cast-tail", () => {
 
     const { proc, result } = runTailBg([castFile])
 
-    // Wait and then kill — should be in live-tail mode without crashing
+    // Wait and then kill - should be in live-tail mode without crashing
     await sleep(1000)
     proc.kill("SIGTERM")
 

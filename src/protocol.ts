@@ -147,7 +147,7 @@ export type DaemonMethod   = keyof DaemonProtocol
 export type DaemonParams<K extends DaemonMethod> = DaemonProtocol[K]["params"]
 export type DaemonResult<K extends DaemonMethod> = DaemonProtocol[K]["result"]
 
-// Complete handler map — daemon.ts will get a TypeScript error if any method is missing
+// Complete handler map - daemon.ts will get a TypeScript error if any method is missing
 export type DaemonHandlers = {
   [K in DaemonMethod]: (params: DaemonParams<K>) => DaemonResult<K> | Promise<DaemonResult<K>>
 }

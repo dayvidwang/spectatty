@@ -39,7 +39,7 @@ describe("generateFrames", () => {
   test("frame delay respects maxDelay clamp", async () => {
     const cast = makeCast([
       [0.0, "o", "a"],
-      [10.0, "o", "b"], // 10s gap — should be clamped
+      [10.0, "o", "b"], // 10s gap - should be clamped
     ])
     const frames = await generateFrames(cast, { maxDelay: 500 })
     expect(frames[1].delay).toBeLessThanOrEqual(500)

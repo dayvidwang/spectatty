@@ -1,5 +1,5 @@
 /**
- * spectatty CLI client — communicates with the daemon over a Unix socket.
+ * spectatty CLI client - communicates with the daemon over a Unix socket.
  */
 
 import { createConnection } from "net"

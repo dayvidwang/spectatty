@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * spectatty daemon — manages terminal sessions over a Unix socket.
+ * spectatty daemon - manages terminal sessions over a Unix socket.
  * Exposes the same capabilities as the MCP server via a simple NDJSON protocol.
  *
  * Protocol (one connection = one request/response):

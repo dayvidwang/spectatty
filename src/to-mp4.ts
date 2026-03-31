@@ -57,7 +57,7 @@ async function probeEncoder(ffmpegPath: string): Promise<"libx264" | "h264_video
 
 /**
  * Convert an asciicast file to MP4. Requires `ffmpeg` to be installed.
- * Streams frames one at a time — O(1 frame) memory regardless of recording length.
+ * Streams frames one at a time - O(1 frame) memory regardless of recording length.
  */
 export async function castToMp4(
   inputPath: string,

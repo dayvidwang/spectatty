@@ -242,7 +242,7 @@ export async function replayTapeToSession(
 
   await replayEvents(terminal, sessionEvents, spawnEvent.t, maxDelay)
 
-  // Wait for any final output to settle — but do NOT destroy; caller owns the terminal.
+  // Wait for any final output to settle - but do NOT destroy; caller owns the terminal.
   await Bun.sleep(300)
   await terminal.flush()
 

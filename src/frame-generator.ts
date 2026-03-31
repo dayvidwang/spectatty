@@ -17,7 +17,7 @@ export interface FrameGenOptions extends RenderOptions {
 }
 
 /**
- * Async generator variant of generateFrames — yields one frame at a time so
+ * Async generator variant of generateFrames - yields one frame at a time so
  * callers can process/stream each frame without buffering the whole recording.
  * Peak memory is O(1 frame) instead of O(all frames).
  */

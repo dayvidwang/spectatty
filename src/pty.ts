@@ -1,5 +1,5 @@
 /**
- * PTY layer — uses bun-pty (requires Bun runtime).
+ * PTY layer - uses bun-pty (requires Bun runtime).
  */
 import { spawn as bunPtySpawn } from "bun-pty"
 

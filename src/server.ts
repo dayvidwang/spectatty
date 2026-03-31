@@ -19,7 +19,7 @@ async function call(method: string, params: Record<string, unknown>): Promise<un
 
 server.tool(
   "terminal_spawn",
-  "Spawn a new headless terminal session. Use this when you need to interact with TUI applications (vim, htop, ncurses apps, interactive prompts) or when the visual layout of the terminal output matters — for example, to take a screenshot and see how something renders. For simple commands where you only need text output (stdout/stderr), use your regular shell/bash tool instead — it is faster and simpler. spectatty is specifically for cases where a plain bash tool is insufficient.",
+  "Spawn a new headless terminal session. Use this when you need to interact with TUI applications (vim, htop, ncurses apps, interactive prompts) or when the visual layout of the terminal output matters - for example, to take a screenshot and see how something renders. For simple commands where you only need text output (stdout/stderr), use your regular shell/bash tool instead - it is faster and simpler. spectatty is specifically for cases where a plain bash tool is insufficient.",
   {
     shell: z.string().optional().describe("Shell to use (default: $SHELL or /bin/bash)"),
     args: z.array(z.string()).optional().describe("Arguments for the shell/command"),

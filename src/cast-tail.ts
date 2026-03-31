@@ -119,7 +119,7 @@ export async function runTail(file: string): Promise<never> {
       for (const line of lines) processLine(line)
     } else {
       if (!hasContent) {
-        // File is empty — wait for content with a timeout
+        // File is empty - wait for content with a timeout
         if (Date.now() - startTime > MAX_HEADER_WAIT_MS) {
           process.stderr.write(
             `Error: empty file (no asciicast header found after ${MAX_HEADER_WAIT_MS / 1000}s): ${file}\n`,

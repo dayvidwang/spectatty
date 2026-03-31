@@ -1,7 +1,7 @@
 import { readdirSync, existsSync } from "fs"
 import type { FrameGenOptions } from "./frame-generator"
 
-/** Find `agg` binary — checks PATH then common mise install locations. */
+/** Find `agg` binary - checks PATH then common mise install locations. */
 function findAgg(): string | null {
   const fromPath = Bun.which("agg")
   if (fromPath) return fromPath

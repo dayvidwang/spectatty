@@ -284,7 +284,7 @@ describe("terminal_ctrl", () => {
 
     // After Ctrl+C, the shell should show a new prompt (^C and/or $ appears)
     const text = term.getText()
-    // The shell should have returned to prompt — check for prompt or interrupted marker
+    // The shell should have returned to prompt - check for prompt or interrupted marker
     expect(text).toMatch(/\$|%|>|#|\^C/)
   })
 
