@@ -97,7 +97,7 @@ server.tool(
     format: z
       .enum(["png", "text", "both"])
       .optional()
-      .describe("Output format: png (image), text (plain text), or both (default: both)"),
+      .describe("Output format: 'png' (image only), 'text' (plain text only), or 'both' (default: both)"),
     savePath: z
       .string()
       .optional()
@@ -200,7 +200,7 @@ server.tool(
   "Wait for a regex pattern to appear in the terminal output. Polls the screen text at regular intervals and returns when the pattern matches or timeout is reached.",
   {
     sessionId: z.string().describe("Terminal session ID"),
-    pattern: z.string().describe("Regex pattern to wait for in the terminal text"),
+    pattern: z.string().describe("Regex pattern to wait for in the terminal text (max 500 chars)"),
     timeout: z.number().optional().describe("Timeout in milliseconds (default: 5000)"),
   },
   async ({ sessionId, pattern, timeout }) => {

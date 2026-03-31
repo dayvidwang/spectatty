@@ -142,10 +142,7 @@ export class HeadlessTerminal {
 
   // Wait for xterm to finish parsing all pending data
   flush(): Promise<void> {
-    return new Promise((resolve) => {
-      // Write an empty string with callback to ensure all prior writes are parsed
-      this.xterm.write("", resolve)
-    })
+    return new Promise((resolve) => { this.xterm.write("", resolve) })
   }
 
   get exited(): boolean {
