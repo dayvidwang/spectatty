@@ -1,36 +1,13 @@
 import { describe, test, expect, afterEach } from "vitest"
 import { HeadlessTerminal } from "./terminal"
+import { KEY_SEQUENCES } from "./key-sequences"
 import { sleep } from "./runtime"
 
-// Key sequences mirroring server.ts KEY_SEQUENCES
-const KEY_SEQUENCES: Record<string, string> = {
-  enter: "\r",
-  return: "\r",
-  backspace: "\x7f",
-  delete: "\x1b[3~",
-  tab: "\t",
-  escape: "\x1b",
-  space: " ",
-  up: "\x1b[A",
-  down: "\x1b[B",
-  right: "\x1b[C",
-  left: "\x1b[D",
-  page_up: "\x1b[5~",
-  page_down: "\x1b[6~",
-  home: "\x1b[H",
-  end: "\x1b[F",
-  f1: "\x1bOP",  f2: "\x1bOQ",  f3: "\x1bOR",  f4: "\x1bOS",
-  f5: "\x1b[15~", f6: "\x1b[17~", f7: "\x1b[18~", f8: "\x1b[19~",
-  f9: "\x1b[20~", f10: "\x1b[21~", f11: "\x1b[23~", f12: "\x1b[24~",
-}
-
-/** Mirrors terminal_type logic from server.ts */
 function typeText(terminal: HeadlessTerminal, text: string, submit = false) {
   terminal.write(text)
   if (submit) terminal.write("\r")
 }
 
-/** Mirrors terminal_key logic from server.ts */
 function pressKey(terminal: HeadlessTerminal, key: string, times = 1): string | null {
   const seq = KEY_SEQUENCES[key.toLowerCase()]
   if (!seq) return null
@@ -38,14 +15,12 @@ function pressKey(terminal: HeadlessTerminal, key: string, times = 1): string | 
   return seq
 }
 
-/** Computes the ctrl char without writing — pure unit testing helper */
 function ctrlChar(key: string): string | null {
   const k = key.toLowerCase()
   if (!/^[a-z]$/.test(k)) return null
   return String.fromCharCode(k.charCodeAt(0) - 0x60)
 }
 
-/** Mirrors terminal_ctrl logic from server.ts */
 function sendCtrl(terminal: HeadlessTerminal, key: string): string | null {
   const data = ctrlChar(key)
   if (!data) return null

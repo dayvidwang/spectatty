@@ -1,0 +1,21 @@
+// Named key → escape sequence mapping (xterm-256color)
+export const KEY_SEQUENCES: Record<string, string> = {
+  enter: "\r",
+  return: "\r",
+  backspace: "\x7f",
+  delete: "\x1b[3~",
+  tab: "\t",
+  escape: "\x1b",
+  space: " ",
+  up: "\x1b[A",
+  down: "\x1b[B",
+  right: "\x1b[C",
+  left: "\x1b[D",
+  page_up: "\x1b[5~",
+  page_down: "\x1b[6~",
+  home: "\x1b[H",
+  end: "\x1b[F",
+  f1: "\x1bOP",  f2: "\x1bOQ",  f3: "\x1bOR",  f4: "\x1bOS",
+  f5: "\x1b[15~", f6: "\x1b[17~", f7: "\x1b[18~", f8: "\x1b[19~",
+  f9: "\x1b[20~", f10: "\x1b[21~", f11: "\x1b[23~", f12: "\x1b[24~",
+}
