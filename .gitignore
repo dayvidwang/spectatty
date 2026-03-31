@@ -2,8 +2,9 @@ node_modules/
 dist/
 .DS_Store
 *.tgz
-assets/droid-*.png
-assets/demo-*.png
-assets/inner-droid-session.png
-assets/*.cast
-test-asciinema.cast
+
+tmp/
+
+.claude/
+.factory/
+.cursor/

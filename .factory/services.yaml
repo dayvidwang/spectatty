@@ -1,7 +1,0 @@
-commands:
-  install: bun install
-  test: bun vitest run
-  typecheck: bunx tsc --noEmit
-  dev: bun run dev
-
-services: {}
