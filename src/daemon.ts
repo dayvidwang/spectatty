@@ -13,8 +13,11 @@ import { renderToPng } from "./renderer"
 import { getTheme } from "./themes"
 import { sleep } from "./runtime"
 import { createTapeFile, replayTapeToSession } from "./tape"
+import { KEY_SEQUENCES } from "./key-sequences"
 import type { TapeEvent } from "./tape"
-import type { DaemonHandlers, ScreenshotResult, BufferMeta } from "./protocol"
+import type { DaemonParams, DaemonResult, ScreenshotResult } from "./protocol"
+import { PARAM_SCHEMAS, type DaemonMethod } from "./protocol"
+import { type ZodType } from "zod"
 import { writeFile, mkdir, unlink } from "fs/promises"
 import { unlinkSync, readdirSync } from "fs"
 import { dirname, resolve } from "path"
@@ -51,35 +54,9 @@ function getSession(id: string): HeadlessTerminal {
   return session
 }
 
-// Named key → escape sequence mapping (xterm-256color)
-const KEY_SEQUENCES: Record<string, string> = {
-  enter: "\r",
-  return: "\r",
-  backspace: "\x7f",
-  delete: "\x1b[3~",
-  tab: "\t",
-  escape: "\x1b",
-  space: " ",
-  up: "\x1b[A",
-  down: "\x1b[B",
-  right: "\x1b[C",
-  left: "\x1b[D",
-  page_up: "\x1b[5~",
-  page_down: "\x1b[6~",
-  home: "\x1b[H",
-  end: "\x1b[F",
-  f1: "\x1bOP",  f2: "\x1bOQ",  f3: "\x1bOR",  f4: "\x1bOS",
-  f5: "\x1b[15~", f6: "\x1b[17~", f7: "\x1b[18~", f8: "\x1b[19~",
-  f9: "\x1b[20~", f10: "\x1b[21~", f11: "\x1b[23~", f12: "\x1b[24~",
-}
-
 // --- Tool handlers ---
 
-async function handleSpawn(params: Record<string, unknown>) {
-  const { shell, args, cols, rows, cwd, env, recordingPath } = params as {
-    shell?: string; args?: string[]; cols?: number; rows?: number
-    cwd?: string; env?: Record<string, string>; recordingPath?: string
-  }
+async function handleSpawn({ shell, args, cols, rows, cwd, env, recordingPath }: DaemonParams<"terminal_spawn">) {
 
   const id = `term-${nextId++}`
   const terminal = new HeadlessTerminal({
@@ -191,8 +168,7 @@ async function handleSpawn(params: Record<string, unknown>) {
   }
 }
 
-async function handleType(params: Record<string, unknown>) {
-  const { sessionId, text, submit } = params as { sessionId: string; text: string; submit?: boolean }
+async function handleType({ sessionId, text, submit }: DaemonParams<"terminal_type">) {
   const terminal = getSession(sessionId)
   terminal.write(text)
   if (submit) terminal.write("\r")
@@ -202,8 +178,7 @@ async function handleType(params: Record<string, unknown>) {
   return { ok: true } as const
 }
 
-async function handleKey(params: Record<string, unknown>) {
-  const { sessionId, key, times } = params as { sessionId: string; key: string; times?: number }
+async function handleKey({ sessionId, key, times }: DaemonParams<"terminal_key">) {
   const terminal = getSession(sessionId)
   const seq = KEY_SEQUENCES[key.toLowerCase()]
   if (!seq) throw new Error(`Unknown key: "${key}". Valid keys: ${Object.keys(KEY_SEQUENCES).join(", ")}`)
@@ -216,8 +191,7 @@ async function handleKey(params: Record<string, unknown>) {
   return { ok: true } as const
 }
 
-async function handleCtrl(params: Record<string, unknown>) {
-  const { sessionId, key } = params as { sessionId: string; key: string }
+async function handleCtrl({ sessionId, key }: DaemonParams<"terminal_ctrl">) {
   const terminal = getSession(sessionId)
   const k = key.toLowerCase()
   if (!/^[a-z]$/.test(k)) throw new Error(`Ctrl key must be a single letter a–z, got: "${key}"`)
@@ -229,8 +203,7 @@ async function handleCtrl(params: Record<string, unknown>) {
   return { ok: true } as const
 }
 
-async function handleWrite(params: Record<string, unknown>) {
-  const { sessionId, data } = params as { sessionId: string; data: string }
+async function handleWrite({ sessionId, data }: DaemonParams<"terminal_write">) {
   const terminal = getSession(sessionId)
   const unescaped = data
     .replace(/\\r/g, "\r")
@@ -245,10 +218,7 @@ async function handleWrite(params: Record<string, unknown>) {
   return { ok: true as const, bytes: unescaped.length }
 }
 
-async function handleScreenshot(params: Record<string, unknown>) {
-  const { sessionId, format, savePath, viewportTop } = params as {
-    sessionId: string; format?: "png" | "text" | "both"; savePath?: string; viewportTop?: number
-  }
+async function handleScreenshot({ sessionId, format, savePath, viewportTop }: DaemonParams<"terminal_screenshot">) {
   const terminal = getSession(sessionId)
   await terminal.flush()
 
@@ -261,27 +231,9 @@ async function handleScreenshot(params: Record<string, unknown>) {
 
   tapeLogs.get(sessionId)?.push({ type: "screenshot", sessionId, t: Date.now() })
 
-  const fmt = format ?? "text"
-  const result: Partial<ScreenshotResult> = {}
-
-  if (fmt === "text" || fmt === "both") {
-    result.text = terminal.getText()
-  }
-
-  if (fmt === "png" || fmt === "both") {
-    const grid = terminal.getCellGrid()
-    const png = renderToPng(grid, terminal.cols, terminal.rows)
-    if (savePath) {
-      await mkdir(dirname(savePath), { recursive: true })
-      await writeFile(savePath, png)
-      result.savedTo = savePath
-    } else {
-      result.pngBase64 = png.toString("base64")
-    }
-  }
-
+  const fmt = format ?? "both"
   const raw = terminal.getBufferMeta()
-  result.meta = {
+  const meta = {
     totalLines: raw.totalLines,
     cursorX: raw.cursorX,
     cursorY: raw.cursorY,
@@ -291,13 +243,27 @@ async function handleScreenshot(params: Record<string, unknown>) {
     rows: terminal.rows,
   }
 
+  const text = (fmt === "text" || fmt === "both") ? terminal.getText() : undefined
+
+  let pngBase64: string | undefined
+  let savedTo: string | undefined
+  if (fmt === "png" || fmt === "both") {
+    const png = renderToPng(terminal.getCellGrid(), terminal.cols, terminal.rows)
+    if (savePath) {
+      await mkdir(dirname(savePath), { recursive: true })
+      await writeFile(savePath, png)
+      savedTo = savePath
+    } else {
+      pngBase64 = png.toString("base64")
+    }
+  }
+
   if (viewportTop !== undefined) terminal.scrollToLine(prevViewportTop)
 
-  return result as ScreenshotResult
+  return { text, pngBase64, savedTo, meta }
 }
 
-async function handleResize(params: Record<string, unknown>) {
-  const { sessionId, cols, rows } = params as { sessionId: string; cols: number; rows: number }
+async function handleResize({ sessionId, cols, rows }: DaemonParams<"terminal_resize">) {
   const terminal = getSession(sessionId)
   terminal.resize(cols, rows)
   await sleep(50)
@@ -305,8 +271,7 @@ async function handleResize(params: Record<string, unknown>) {
   return { ok: true as const, cols: terminal.cols, rows: terminal.rows }
 }
 
-function handleKill(params: Record<string, unknown>) {
-  const { sessionId } = params as { sessionId: string }
+function handleKill({ sessionId }: DaemonParams<"terminal_kill">) {
   getSession(sessionId)
   tapeLogs.get(sessionId)?.push({ type: "kill", sessionId, t: Date.now() })
   const cleanup = sessionCleanup.get(sessionId)
@@ -327,8 +292,7 @@ function handleList() {
   return { sessions: list }
 }
 
-async function handleScroll(params: Record<string, unknown>) {
-  const { sessionId, direction, amount } = params as { sessionId: string; direction: "up" | "down"; amount?: number }
+async function handleScroll({ sessionId, direction, amount }: DaemonParams<"terminal_send_scroll">) {
   const terminal = getSession(sessionId)
   const lines = amount ?? 5
   for (let i = 0; i < lines; i++) {
@@ -342,11 +306,7 @@ async function handleScroll(params: Record<string, unknown>) {
   return { scrolled: `${direction} ${lines} lines`, ...meta, cols: terminal.cols, rows: terminal.rows }
 }
 
-async function handleMouse(params: Record<string, unknown>) {
-  const { sessionId, action, x, y, button } = params as {
-    sessionId: string; action: "click" | "move" | "down" | "up"
-    x: number; y: number; button?: "left" | "middle" | "right"
-  }
+async function handleMouse({ sessionId, action, x, y, button }: DaemonParams<"terminal_mouse">) {
   const terminal = getSession(sessionId)
   const buttonCode = action === "move" ? 32 : (button === "right" ? 2 : button === "middle" ? 1 : 0)
   const col = Math.max(1, Math.round(x))
@@ -366,8 +326,7 @@ async function handleMouse(params: Record<string, unknown>) {
   return { ok: true as const, action, x: col, y: row }
 }
 
-async function handleWaitFor(params: Record<string, unknown>) {
-  const { sessionId, pattern, timeout } = params as { sessionId: string; pattern: string; timeout?: number }
+async function handleWaitFor({ sessionId, pattern, timeout }: DaemonParams<"terminal_wait_for">) {
   const terminal = getSession(sessionId)
   const timeoutMs = timeout ?? 5000
 
@@ -399,19 +358,28 @@ async function handleWaitFor(params: Record<string, unknown>) {
   return { matched: false, pattern, error: `Timed out after ${timeoutMs}ms waiting for: ${pattern}` }
 }
 
-async function handleReplayTape(params: Record<string, unknown>) {
-  const { tapePath, sessionId, recordingPath, maxDelay } = params as {
-    tapePath: string; sessionId?: string; recordingPath?: string; maxDelay?: number
-  }
+async function handleReplayTape({ tapePath, sessionId, recordingPath, maxDelay }: DaemonParams<"terminal_replay_tape">) {
   const terminal = await replayTapeToSession(tapePath, { sessionId, recordingPath, maxDelay })
   const id = `term-${nextId++}`
   sessions.set(id, terminal)
   tapeLogs.set(id, [])
+
+  let cleanedUp = false
+  const cleanup = () => {
+    if (cleanedUp) return
+    cleanedUp = true
+    sessionCleanup.delete(id)
+    terminal.destroy()
+    sessions.delete(id)
+    tapeLogs.delete(id)
+  }
+  sessionCleanup.set(id, cleanup)
+  terminal.waitForExit().then(cleanup).catch(() => {})
+
   return { sessionId: id, cols: terminal.cols, rows: terminal.rows, ...(recordingPath ? { recordingPath } : {}) }
 }
 
-async function handleExportTape(params: Record<string, unknown>) {
-  const { sessionId, savePath } = params as { sessionId: string; savePath: string }
+async function handleExportTape({ sessionId, savePath }: DaemonParams<"terminal_export_tape">) {
   getSession(sessionId)
   const events = tapeLogs.get(sessionId)
   if (!events || events.length === 0) throw new Error(`No tape events recorded for session ${sessionId}`)
@@ -421,16 +389,14 @@ async function handleExportTape(params: Record<string, unknown>) {
   return { savedTo: savePath, events: events.length }
 }
 
-function handleRecordStart(params: Record<string, unknown>) {
-  const { sessionId, savePath } = params as { sessionId: string; savePath: string }
+function handleRecordStart({ sessionId, savePath }: DaemonParams<"terminal_record_start">) {
   const terminal = getSession(sessionId)
   if (terminal.recording) throw new Error(`Session ${sessionId} is already recording`)
   terminal.startRecording(savePath)
   return { ok: true as const, path: savePath }
 }
 
-function handleRecordStop(params: Record<string, unknown>) {
-  const { sessionId } = params as { sessionId: string }
+function handleRecordStop({ sessionId }: DaemonParams<"terminal_record_stop">) {
   const terminal = getSession(sessionId)
   if (!terminal.recording) throw new Error(`Session ${sessionId} is not recording`)
   terminal.stopRecording()
@@ -439,31 +405,43 @@ function handleRecordStop(params: Record<string, unknown>) {
 
 // --- Request dispatcher ---
 
-// Typed dispatch table — TypeScript will error here if a DaemonMethod is missing
-const HANDLERS: DaemonHandlers = {
-  terminal_spawn:        (p) => handleSpawn(p as any),
-  terminal_type:         (p) => handleType(p as any),
-  terminal_key:          (p) => handleKey(p as any),
-  terminal_ctrl:         (p) => handleCtrl(p as any),
-  terminal_write:        (p) => handleWrite(p as any),
-  terminal_screenshot:   (p) => handleScreenshot(p as any),
-  terminal_resize:       (p) => handleResize(p as any),
-  terminal_kill:         (p) => handleKill(p as any),
-  terminal_list:         ()  => handleList(),
-  terminal_send_scroll:  (p) => handleScroll(p as any),
-  terminal_mouse:        (p) => handleMouse(p as any),
-  terminal_wait_for:     (p) => handleWaitFor(p as any),
-  terminal_replay_tape:  (p) => handleReplayTape(p as any),
-  terminal_export_tape:  (p) => handleExportTape(p as any),
-  terminal_record_start: (p) => handleRecordStart(p as any),
-  terminal_record_stop:  (p) => handleRecordStop(p as any),
+type Entry<K extends DaemonMethod> = {
+  schema: ZodType<DaemonParams<K>>
+  handle: (p: DaemonParams<K>) => DaemonResult<K> | Promise<DaemonResult<K>>
+}
+
+// Typed as the mapped type so that HANDLERS[key] resolves to Entry<K> for a generic K,
+// rather than a union of all entries. TypeScript checks each key against its specific Entry<K>.
+const HANDLERS: { [K in DaemonMethod]: Entry<K> } = {
+  terminal_spawn:        { schema: PARAM_SCHEMAS.terminal_spawn,        handle: handleSpawn },
+  terminal_type:         { schema: PARAM_SCHEMAS.terminal_type,         handle: handleType },
+  terminal_key:          { schema: PARAM_SCHEMAS.terminal_key,          handle: handleKey },
+  terminal_ctrl:         { schema: PARAM_SCHEMAS.terminal_ctrl,         handle: handleCtrl },
+  terminal_write:        { schema: PARAM_SCHEMAS.terminal_write,        handle: handleWrite },
+  terminal_screenshot:   { schema: PARAM_SCHEMAS.terminal_screenshot,   handle: handleScreenshot },
+  terminal_resize:       { schema: PARAM_SCHEMAS.terminal_resize,       handle: handleResize },
+  terminal_kill:         { schema: PARAM_SCHEMAS.terminal_kill,         handle: handleKill },
+  terminal_list:         { schema: PARAM_SCHEMAS.terminal_list,         handle: handleList },
+  terminal_send_scroll:  { schema: PARAM_SCHEMAS.terminal_send_scroll,  handle: handleScroll },
+  terminal_mouse:        { schema: PARAM_SCHEMAS.terminal_mouse,        handle: handleMouse },
+  terminal_wait_for:     { schema: PARAM_SCHEMAS.terminal_wait_for,     handle: handleWaitFor },
+  terminal_replay_tape:  { schema: PARAM_SCHEMAS.terminal_replay_tape,  handle: handleReplayTape },
+  terminal_export_tape:  { schema: PARAM_SCHEMAS.terminal_export_tape,  handle: handleExportTape },
+  terminal_record_start: { schema: PARAM_SCHEMAS.terminal_record_start, handle: handleRecordStart },
+  terminal_record_stop:  { schema: PARAM_SCHEMAS.terminal_record_stop,  handle: handleRecordStop },
+}
+
+function invoke<K extends DaemonMethod>(key: K, raw: Record<string, unknown>) {
+  const entry = HANDLERS[key]
+  const parsed = entry.schema.safeParse(raw)
+  if (!parsed.success) throw new Error(`Invalid parameters: ${parsed.error.message}`)
+  return entry.handle(parsed.data)
 }
 
 async function dispatch(method: string, params: Record<string, unknown>): Promise<unknown> {
   if (method === "ping") return { pong: true, sessions: sessions.size, pid: DAEMON_PID }
-  const handler = HANDLERS[method as keyof DaemonHandlers]
-  if (!handler) throw new Error(`Unknown method: ${method}`)
-  return handler(params as any)
+  if (!(method in HANDLERS)) throw new Error(`Unknown method: ${method}`)
+  return invoke(method as DaemonMethod, params)
 }
 
 // --- Socket server ---

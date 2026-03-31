@@ -32,6 +32,7 @@
     "src/tape.ts",
     "src/daemon.ts",
     "src/client.ts",
+    "src/key-sequences.ts",
     "assets/JetBrainsMono-Regular.ttf",
     "assets/JetBrainsMono-Bold.ttf",
     "assets/JetBrainsMono-Italic.ttf",
