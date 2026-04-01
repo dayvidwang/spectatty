@@ -100,7 +100,7 @@ spectatty <subcommand>
 | `mcp`                              | Start the MCP server on stdio                                                                  |
 | `server start/stop/status`         | Manage the background daemon                                                                   |
 | `ctl <subcommand>`                 | Control terminal sessions (mirrors all MCP tools - see below)                                 |
-| `attach <sessionId>`               | Attach your terminal to a live session. Ctrl+] then `d` to detach.                             |
+| `attach <sessionId>`               | Attach your terminal to a live session. Uses **Ctrl+A** as a prefix key for control commands - press Ctrl+A then: `d` to detach, `l` to acquire the agent lock (blocks agent writes so you can type freely), `u` to release the lock, `s` to take a screenshot while locked. Send a literal Ctrl+A by pressing Ctrl+A twice. If you get stuck, Ctrl+A then `d` always exits. |
 | `tail <file.cast>`                 | Live-tail an asciicast recording as it's being written                                         |
 | `to-gif <input.cast> <output.gif>` | Convert a recording to an animated GIF (uses `agg` if available, JS fallback otherwise)        |
 | `to-mp4 <input.cast> <output.mp4>` | Convert a recording to MP4 (uses `ffmpeg` if available, WASM fallback otherwise)               |
