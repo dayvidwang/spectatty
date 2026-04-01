@@ -221,13 +221,15 @@ async function handleSpawn({ shell, args, cols, rows, cwd, env, recordingPath }:
   }
 }
 
-async function handleType({ sessionId, text, submit }: DaemonParams<"terminal_type">) {
+async function handleType({ sessionId, text, submit, delay = 30 }: DaemonParams<"terminal_type">) {
   checkLockBlock(sessionId, "terminal_type")
   const terminal = getSession(sessionId)
-  terminal.write(text)
+  for (const char of text) {
+    terminal.write(char)
+    await sleep(delay)
+  }
   if (submit) terminal.write("\r")
   tapeLogs.get(sessionId)?.push({ type: "write", sessionId, data: text + (submit ? "\r" : ""), t: Date.now() })
-  await sleep(100)
   await terminal.flush()
   return { ok: true } as const
 }

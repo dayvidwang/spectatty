@@ -217,10 +217,28 @@ const attachCmd = defineCommand({
         process.off("SIGWINCH", sendResize)
         process.stdin.pause()
         ctrlSocket.destroy()
-        if (savedTermState) {
-          try { Bun.spawnSync(["stty", savedTermState], { stdin: "inherit" }) } catch {}
-        } else if (process.stdin.isTTY) {
-          process.stdin.setRawMode(false)
+        if (process.stdin.isTTY) {
+          // Reset escape sequence modes the attached session may have set:
+          // mouse modes, cursor visibility, bracketed paste, app cursor keys, SGR attrs.
+          // Then restore cursor + screen content saved when we attached.
+          process.stdout.write(
+            "\x1b[?1000l" + // disable mouse button tracking
+            "\x1b[?1002l" + // disable button+motion tracking
+            "\x1b[?1003l" + // disable all-motion tracking
+            "\x1b[?1006l" + // disable SGR mouse encoding
+            "\x1b[?1015l" + // disable URXVT mouse encoding
+            "\x1b[?25h"  + // ensure cursor is visible
+            "\x1b[?1l"   + // reset cursor keys to normal (non-application) mode
+            "\x1b[?2004l" + // disable bracketed paste mode
+            "\x1b[!p"    + // DECSTR soft reset (resets many modes to defaults)
+            "\x1b[m"     + // reset SGR text attributes
+            "\x1b[?1049l"  // exit alternate screen buffer, restoring saved screen
+          )
+          if (savedTermState) {
+            try { Bun.spawnSync(["stty", savedTermState], { stdin: "inherit" }) } catch {}
+          } else {
+            process.stdin.setRawMode(false)
+          }
         }
       }
 
@@ -412,12 +430,14 @@ const typeCmd = defineCommand({
     sessionId: { type: "positional", description: "Session ID (e.g. term-1)", required: true },
     text: { type: "positional", description: "Text to type", required: true },
     submit: { type: "boolean", description: "Press Enter after typing", default: false },
+    delay: { type: "string", description: "Milliseconds between characters for natural typing (default: 30). Use 0 for instant." },
   },
   async run({ args }) {
     const { ensureDaemon, request, printResult, printError } = await import("./client")
     await ensureDaemon()
     try {
-      printResult(await request("terminal_type", { sessionId: args.sessionId, text: args.text, submit: args.submit }))
+      const delay = args.delay !== undefined ? Number(args.delay) : undefined
+      printResult(await request("terminal_type", { sessionId: args.sessionId, text: args.text, submit: args.submit, delay }))
     } catch (err) {
       printError((err as Error).message)
     }

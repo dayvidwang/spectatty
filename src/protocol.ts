@@ -23,7 +23,7 @@ const spawnParams = z.object({
 
 const sessionId = z.object({ sessionId: z.string() })
 
-const typeParams        = sessionId.extend({ text: z.string(), submit: z.boolean().optional() })
+const typeParams        = sessionId.extend({ text: z.string(), submit: z.boolean().optional(), delay: z.number().optional() })
 const keyParams         = sessionId.extend({ key: z.string(), times: z.number().optional() })
 const ctrlParams        = sessionId.extend({ key: z.string() })
 const writeParams       = sessionId.extend({ data: z.string() })

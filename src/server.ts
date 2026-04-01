@@ -42,9 +42,10 @@ server.tool(
     sessionId: z.string().describe("Terminal session ID"),
     text: z.string().describe("Text to type"),
     submit: z.boolean().optional().describe("Press Enter after typing (default: false)"),
+    delay: z.number().optional().describe("Milliseconds between each character for natural typing feel (default: 30). Set to 0 to type instantly."),
   },
-  async ({ sessionId, text, submit }) => {
-    await call("terminal_type", { sessionId, text, submit })
+  async ({ sessionId, text, submit, delay }) => {
+    await call("terminal_type", { sessionId, text, submit, delay })
     return { content: [{ type: "text" as const, text: `Typed ${JSON.stringify(text)}${submit ? " + Enter" : ""}` }] }
   },
 )
@@ -78,7 +79,7 @@ server.tool(
 
 server.tool(
   "terminal_write",
-  "Send raw input to a terminal session. Supports escape sequences like \\r (Enter), \\x03 (Ctrl+C), \\e (Escape). Prefer terminal_type, terminal_key, or terminal_ctrl for common operations.",
+  "Send raw input to a terminal session. Supports escape sequences like \\r (Enter), \\x03 (Ctrl+C), \\e (Escape). Prefer terminal_type, terminal_key, or terminal_ctrl for common operations. To simulate a paste into apps with bracketed paste mode (vim, opencode, most TUIs), wrap with \\x1b[200~text\\x1b[201~.",
   {
     sessionId: z.string().describe("Terminal session ID"),
     data: z.string().describe("Data to write (text, or escape sequences like \\x03 for Ctrl+C, \\r for Enter)"),
@@ -91,7 +92,7 @@ server.tool(
 
 server.tool(
   "terminal_screenshot",
-  "Take a screenshot of the current terminal state. Returns both a PNG image and the text content. If the user asks to see a screenshot, use the savePath parameter to save it to a file they can open.",
+  "Take a screenshot of the current terminal state. Returns both a PNG image and the text content. If the user asks to see a screenshot, use the savePath parameter to save it to a file they can open. IMPORTANT: when showing a screenshot to the user, you MUST use savePath to save it to disk first — the inline image is not visible to the user otherwise.",
   {
     sessionId: z.string().describe("Terminal session ID"),
     format: z
