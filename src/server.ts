@@ -125,6 +125,19 @@ server.tool(
 
     content.push({ type: "text" as const, text: JSON.stringify(result.meta) })
 
+    if (result.userActivity) {
+      const ua = result.userActivity
+      // Emit text events and screenshots in timeline order
+      for (const event of ua.events) {
+        if (event.type === "screenshot") {
+          content.push({ type: "image" as const, data: event.png, mimeType: "image/png" })
+        } else {
+          content.push({ type: "text" as const, text: JSON.stringify(event) })
+        }
+      }
+      content.push({ type: "text" as const, text: JSON.stringify({ userActivity: { lockedAt: ua.lockedAt, unlockedAt: ua.unlockedAt, eventCount: ua.events.length } }) })
+    }
+
     return { content }
   },
 )

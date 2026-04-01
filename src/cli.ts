@@ -140,7 +140,7 @@ const attachCmd = defineCommand({
       }
       process.stdin.resume()
 
-      // Connect to control socket for out-of-band resize events
+      // Connect to control socket for out-of-band resize and lock events
       const ctrlSocket = createConnection(ctrlSocketPath)
 
       const sendResize = () => {
@@ -149,36 +149,71 @@ const attachCmd = defineCommand({
         if (cols && rows) ctrlSocket.write(JSON.stringify({ type: "resize", cols, rows }) + "\n")
       }
 
-      ctrlSocket.on("connect", () => sendResize()) // sync PTY size immediately on attach
+      ctrlSocket.on("connect", () => sendResize())
 
-      // Bridge stdin → socket with Ctrl+] prefix detection for detach
-      // Ctrl+] = 0x1D. Pressing Ctrl+] then 'd' detaches cleanly.
-      const PREFIX = 0x1d // Ctrl+]
+      // Lock state - starts read-only (stdin not forwarded to PTY)
+      let isLocked = false
+      let screenshotCount = 0
+
+      const setTitle = (status: string) =>
+        process.stderr.write(`\x1b]0;spectatty [${args.sessionId}] ${status}\x07`)
+
+      setTitle("read-only")
+
+      // Ctrl+A (0x01) prefix for lock/unlock/screenshot/detach commands
+      const CTRL_A = 0x01
       let prefixPending = false
+
       process.stdin.on("data", (buf: Buffer) => {
         if (prefixPending) {
           prefixPending = false
-          if (buf.length === 1 && buf[0] === 0x64) { // 'd'
-            process.stderr.write("\r\n[detached]\r\n")
+          const b = buf.length === 1 ? buf[0] : -1
+          if (b === 0x6c) { // 'l' - acquire lock
+            ctrlSocket.write(JSON.stringify({ type: "lock" }) + "\n")
+            isLocked = true
+            screenshotCount = 0
+            setTitle("LOCKED | 0 screenshots")
+          } else if (b === 0x75) { // 'u' - release lock
+            ctrlSocket.write(JSON.stringify({ type: "unlock" }) + "\n")
+            isLocked = false
+            setTitle("read-only")
+          } else if (b === 0x73) { // 's' - snapshot screenshot
+            ctrlSocket.write(JSON.stringify({ type: "screenshot" }) + "\n")
+            screenshotCount++
+            setTitle(`LOCKED | ${screenshotCount} screenshot${screenshotCount === 1 ? "" : "s"}`)
+
+          } else if (b === 0x64) { // 'd' - detach
             cleanup()
             process.exit(0)
+          } else if (b === CTRL_A) { // Ctrl+A+Ctrl+A - send literal Ctrl+A when locked
+            if (isLocked) socket.write(Buffer.from([CTRL_A]))
+          } else {
+            // Unknown chord - if locked, forward the Ctrl+A and the buffer
+            if (isLocked) {
+              socket.write(Buffer.from([CTRL_A]))
+              socket.write(buf)
+            }
           }
-          // Not a detach command - forward the prefix byte then the new data
-          socket.write(Buffer.from([PREFIX]))
-          socket.write(buf)
           return
         }
-        if (buf.length === 1 && buf[0] === PREFIX) {
+        if (buf.length === 1 && buf[0] === CTRL_A) {
           prefixPending = true
           return
         }
-        socket.write(buf)
+        // Only forward stdin when locked (read-only by default)
+        if (isLocked) socket.write(buf)
       })
+
       socket.on("data", (buf: Buffer) => process.stdout.write(buf))
 
       process.on("SIGWINCH", sendResize)
 
       const cleanup = () => {
+        if (isLocked) {
+          ctrlSocket.write(JSON.stringify({ type: "unlock" }) + "\n")
+          isLocked = false
+        }
+        process.stderr.write("\x1b]0;\x07") // restore blank title
         process.off("SIGWINCH", sendResize)
         process.stdin.pause()
         ctrlSocket.destroy()

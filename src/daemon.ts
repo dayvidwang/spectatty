@@ -15,7 +15,7 @@ import { sleep } from "./runtime"
 import { createTapeFile, replayTapeToSession } from "./tape"
 import { KEY_SEQUENCES } from "./key-sequences"
 import type { TapeEvent } from "./tape"
-import type { DaemonParams, DaemonResult, ScreenshotResult } from "./protocol"
+import type { DaemonParams, DaemonResult, ScreenshotResult, UserActivity, UserEvent } from "./protocol"
 import { PARAM_SCHEMAS, type DaemonMethod } from "./protocol"
 import { type ZodType } from "zod"
 import { writeFile, mkdir, unlink } from "fs/promises"
@@ -39,6 +39,29 @@ const MAX_ATTACH_BUFFER = 512 * 1024
 const attachServers = new Map<string, { server: NetServer; ctrlServer: NetServer; clients: Set<NetSocket>; buffer: Buffer[]; bufferSize: number }>()
 const sessionCleanup = new Map<string, () => void>()
 const tapeLogs = new Map<string, TapeEvent[]>()
+
+type LockState = {
+  locked: boolean
+  pendingReview: boolean
+  lockedAt?: number
+  unlockedAt?: number
+  events: UserEvent[]
+}
+const lockStates = new Map<string, LockState>()
+
+function initLockState(id: string) {
+  lockStates.set(id, { locked: false, pendingReview: false, events: [] })
+}
+
+function checkLockBlock(sessionId: string, method: DaemonMethod): void {
+  const ls = lockStates.get(sessionId)
+  if (!ls) return
+  if (ls.locked) throw new Error("Session is user-locked. Wait for user to release.")
+  if (ls.pendingReview) {
+    const exempt: DaemonMethod[] = ["terminal_list", "terminal_kill", "terminal_resize", "terminal_screenshot"]
+    if (!exempt.includes(method)) throw new Error("User activity occurred since last agent action. Call terminal_screenshot first.")
+  }
+}
 
 function socketPathForSession(id: string): string {
   return `/tmp/spectatty-${DAEMON_PID}-${id}.sock`
@@ -71,6 +94,7 @@ async function handleSpawn({ shell, args, cols, rows, cwd, env, recordingPath }:
   if (recordingPath) terminal.startRecording(recordingPath)
   await terminal.spawn({ shell, args, cwd, env })
   sessions.set(id, terminal)
+  initLockState(id)
 
   const sockPath = socketPathForSession(id)
   const attachClients = new Set<NetSocket>()
@@ -80,7 +104,15 @@ async function handleSpawn({ shell, args, cols, rows, cwd, env, recordingPath }:
   const socketServer = createNetServer((client) => {
     attachClients.add(client)
     for (const chunk of attachBuffer) client.write(chunk)
-    client.on("data", (buf: Buffer) => terminal.write(buf.toString("utf8")))
+    // Only forward stdin when the session is user-locked; otherwise read-only
+    client.on("data", (buf: Buffer) => {
+      const ls = lockStates.get(id)
+      if (ls?.locked) {
+        const data = buf.toString("utf8")
+        terminal.write(data)
+        ls.events.push({ type: "input", data, t: Date.now() })
+      }
+    })
     client.on("close", () => attachClients.delete(client))
     client.on("error", () => attachClients.delete(client))
   })
@@ -110,8 +142,28 @@ async function handleSpawn({ shell, args, cols, rows, cwd, env, recordingPath }:
         if (!line.trim()) continue
         try {
           const msg = JSON.parse(line)
+          const ls = lockStates.get(id)
           if (msg.type === "resize" && typeof msg.cols === "number" && typeof msg.rows === "number") {
             terminal.resize(msg.cols, msg.rows)
+            if (ls?.locked) ls.events.push({ type: "resize", cols: msg.cols, rows: msg.rows, t: Date.now() })
+          } else if (msg.type === "lock") {
+            if (ls) {
+              ls.locked = true
+              ls.lockedAt = Date.now()
+              ls.events = []
+            }
+          } else if (msg.type === "unlock") {
+            if (ls) {
+              ls.locked = false
+              ls.unlockedAt = Date.now()
+              if (ls.events.length > 0) ls.pendingReview = true
+            }
+          } else if (msg.type === "screenshot") {
+            if (ls?.locked) {
+              terminal.scrollToBottom()
+              const png = renderToPng(terminal.getCellGrid(), terminal.cols, terminal.rows)
+              ls.events.push({ type: "screenshot", png: png.toString("base64"), t: Date.now() })
+            }
           }
         } catch {}
       }
@@ -126,6 +178,7 @@ async function handleSpawn({ shell, args, cols, rows, cwd, env, recordingPath }:
     if (cleanedUp) return
     cleanedUp = true
     sessionCleanup.delete(id)
+    lockStates.delete(id)
     unsubscribeOnData()
     terminal.destroy()
     sessions.delete(id)
@@ -169,6 +222,7 @@ async function handleSpawn({ shell, args, cols, rows, cwd, env, recordingPath }:
 }
 
 async function handleType({ sessionId, text, submit }: DaemonParams<"terminal_type">) {
+  checkLockBlock(sessionId, "terminal_type")
   const terminal = getSession(sessionId)
   terminal.write(text)
   if (submit) terminal.write("\r")
@@ -179,6 +233,7 @@ async function handleType({ sessionId, text, submit }: DaemonParams<"terminal_ty
 }
 
 async function handleKey({ sessionId, key, times }: DaemonParams<"terminal_key">) {
+  checkLockBlock(sessionId, "terminal_key")
   const terminal = getSession(sessionId)
   const seq = KEY_SEQUENCES[key.toLowerCase()]
   if (!seq) throw new Error(`Unknown key: "${key}". Valid keys: ${Object.keys(KEY_SEQUENCES).join(", ")}`)
@@ -192,6 +247,7 @@ async function handleKey({ sessionId, key, times }: DaemonParams<"terminal_key">
 }
 
 async function handleCtrl({ sessionId, key }: DaemonParams<"terminal_ctrl">) {
+  checkLockBlock(sessionId, "terminal_ctrl")
   const terminal = getSession(sessionId)
   const k = key.toLowerCase()
   if (!/^[a-z]$/.test(k)) throw new Error(`Ctrl key must be a single letter a–z, got: "${key}"`)
@@ -204,6 +260,7 @@ async function handleCtrl({ sessionId, key }: DaemonParams<"terminal_ctrl">) {
 }
 
 async function handleWrite({ sessionId, data }: DaemonParams<"terminal_write">) {
+  checkLockBlock(sessionId, "terminal_write")
   const terminal = getSession(sessionId)
   const unescaped = data
     .replace(/\\r/g, "\r")
@@ -260,7 +317,19 @@ async function handleScreenshot({ sessionId, format, savePath, viewportTop }: Da
 
   if (viewportTop !== undefined) terminal.scrollToLine(prevViewportTop)
 
-  return { text, pngBase64, savedTo, meta }
+  let userActivity: UserActivity | undefined
+  const ls = lockStates.get(sessionId)
+  if (ls?.pendingReview) {
+    userActivity = {
+      lockedAt: ls.lockedAt!,
+      unlockedAt: ls.unlockedAt!,
+      events: ls.events,
+    }
+    ls.pendingReview = false
+    ls.events = []
+  }
+
+  return { text, pngBase64, savedTo, meta, ...(userActivity ? { userActivity } : {}) }
 }
 
 async function handleResize({ sessionId, cols, rows }: DaemonParams<"terminal_resize">) {
@@ -293,6 +362,7 @@ function handleList() {
 }
 
 async function handleScroll({ sessionId, direction, amount }: DaemonParams<"terminal_send_scroll">) {
+  checkLockBlock(sessionId, "terminal_send_scroll")
   const terminal = getSession(sessionId)
   const lines = amount ?? 5
   for (let i = 0; i < lines; i++) {
@@ -307,6 +377,7 @@ async function handleScroll({ sessionId, direction, amount }: DaemonParams<"term
 }
 
 async function handleMouse({ sessionId, action, x, y, button }: DaemonParams<"terminal_mouse">) {
+  checkLockBlock(sessionId, "terminal_mouse")
   const terminal = getSession(sessionId)
   const buttonCode = action === "move" ? 32 : (button === "right" ? 2 : button === "middle" ? 1 : 0)
   const col = Math.max(1, Math.round(x))
@@ -327,6 +398,7 @@ async function handleMouse({ sessionId, action, x, y, button }: DaemonParams<"te
 }
 
 async function handleWaitFor({ sessionId, pattern, timeout }: DaemonParams<"terminal_wait_for">) {
+  checkLockBlock(sessionId, "terminal_wait_for")
   const terminal = getSession(sessionId)
   const timeoutMs = timeout ?? 5000
 
@@ -364,11 +436,14 @@ async function handleReplayTape({ tapePath, sessionId, recordingPath, maxDelay }
   sessions.set(id, terminal)
   tapeLogs.set(id, [])
 
+  initLockState(id)
+
   let cleanedUp = false
   const cleanup = () => {
     if (cleanedUp) return
     cleanedUp = true
     sessionCleanup.delete(id)
+    lockStates.delete(id)
     terminal.destroy()
     sessions.delete(id)
     tapeLogs.delete(id)
@@ -380,6 +455,7 @@ async function handleReplayTape({ tapePath, sessionId, recordingPath, maxDelay }
 }
 
 async function handleExportTape({ sessionId, savePath }: DaemonParams<"terminal_export_tape">) {
+  checkLockBlock(sessionId, "terminal_export_tape")
   getSession(sessionId)
   const events = tapeLogs.get(sessionId)
   if (!events || events.length === 0) throw new Error(`No tape events recorded for session ${sessionId}`)
@@ -390,6 +466,7 @@ async function handleExportTape({ sessionId, savePath }: DaemonParams<"terminal_
 }
 
 function handleRecordStart({ sessionId, savePath }: DaemonParams<"terminal_record_start">) {
+  checkLockBlock(sessionId, "terminal_record_start")
   const terminal = getSession(sessionId)
   if (terminal.recording) throw new Error(`Session ${sessionId} is already recording`)
   terminal.startRecording(savePath)
@@ -397,6 +474,7 @@ function handleRecordStart({ sessionId, savePath }: DaemonParams<"terminal_recor
 }
 
 function handleRecordStop({ sessionId }: DaemonParams<"terminal_record_stop">) {
+  checkLockBlock(sessionId, "terminal_record_stop")
   const terminal = getSession(sessionId)
   if (!terminal.recording) throw new Error(`Session ${sessionId} is not recording`)
   terminal.stopRecording()

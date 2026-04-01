@@ -107,11 +107,23 @@ export type BufferMeta = {
   rows: number
 }
 
+export type UserEvent =
+  | { type: "input";      data: string;                    t: number }
+  | { type: "screenshot"; png: string;                     t: number }  // base64 PNG
+  | { type: "resize";     cols: number; rows: number;      t: number }
+
+export type UserActivity = {
+  lockedAt: number
+  unlockedAt: number
+  events: UserEvent[]
+}
+
 export type ScreenshotResult = {
   text?: string
   pngBase64?: string
   savedTo?: string
   meta: BufferMeta
+  userActivity?: UserActivity
 }
 
 export type WaitResult = {
