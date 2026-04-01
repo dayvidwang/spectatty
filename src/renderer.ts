@@ -1,17 +1,21 @@
 import { createCanvas, GlobalFonts, type Canvas } from "@napi-rs/canvas"
-import { join, dirname } from "path"
-import { fileURLToPath } from "url"
+import { readFileSync } from "fs"
 import type { CellInfo } from "./terminal"
 import type { Theme } from "./themes"
 import { DEFAULT_THEME } from "./themes"
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const assetsDir = join(__dirname, "..", "assets")
+// Import font files as embedded assets. Bun's `with { type: "file" }` bundles the
+// file into the compiled binary and returns a path readable via readFileSync at
+// runtime - works in both dev and compiled modes without any path detection.
+import regularFontPath   from "../assets/JetBrainsMono-Regular.ttf"    with { type: "file" }
+import boldFontPath      from "../assets/JetBrainsMono-Bold.ttf"       with { type: "file" }
+import italicFontPath    from "../assets/JetBrainsMono-Italic.ttf"     with { type: "file" }
+import boldItalicPath    from "../assets/JetBrainsMono-BoldItalic.ttf" with { type: "file" }
 
-GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Regular.ttf"),    "JetBrainsMono-Regular")
-GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Bold.ttf"),       "JetBrainsMono-Bold")
-GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-Italic.ttf"),     "JetBrainsMono-Italic")
-GlobalFonts.registerFromPath(join(assetsDir, "JetBrainsMono-BoldItalic.ttf"), "JetBrainsMono-BoldItalic")
+GlobalFonts.register(readFileSync(regularFontPath),   "JetBrainsMono-Regular")
+GlobalFonts.register(readFileSync(boldFontPath),      "JetBrainsMono-Bold")
+GlobalFonts.register(readFileSync(italicFontPath),    "JetBrainsMono-Italic")
+GlobalFonts.register(readFileSync(boldItalicPath),    "JetBrainsMono-BoldItalic")
 
 // Register system fallback fonts for glyphs not covered by JetBrains Mono
 // (braille spinner chars, emoji, misc symbols). Silently skip if unavailable.
