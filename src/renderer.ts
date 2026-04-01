@@ -7,10 +7,10 @@ import { DEFAULT_THEME } from "./themes"
 // Import font files as embedded assets. Bun's `with { type: "file" }` bundles the
 // file into the compiled binary and returns a path readable via readFileSync at
 // runtime - works in both dev and compiled modes without any path detection.
-import regularFontPath   from "../assets/JetBrainsMono-Regular.ttf"    with { type: "file" }
-import boldFontPath      from "../assets/JetBrainsMono-Bold.ttf"       with { type: "file" }
-import italicFontPath    from "../assets/JetBrainsMono-Italic.ttf"     with { type: "file" }
-import boldItalicPath    from "../assets/JetBrainsMono-BoldItalic.ttf" with { type: "file" }
+import regularFontPath   from "../assets/fonts/JetBrainsMono-Regular.ttf"    with { type: "file" }
+import boldFontPath      from "../assets/fonts/JetBrainsMono-Bold.ttf"       with { type: "file" }
+import italicFontPath    from "../assets/fonts/JetBrainsMono-Italic.ttf"     with { type: "file" }
+import boldItalicPath    from "../assets/fonts/JetBrainsMono-BoldItalic.ttf" with { type: "file" }
 
 GlobalFonts.register(readFileSync(regularFontPath),   "JetBrainsMono-Regular")
 GlobalFonts.register(readFileSync(boldFontPath),      "JetBrainsMono-Bold")

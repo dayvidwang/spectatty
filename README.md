@@ -16,13 +16,13 @@ When building web applications, this isn't a problem - tools like [Playwright](h
 
 | htop                                                                                                                                        | opencode                                                                                                                                            |
 | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <img src="https://raw.githubusercontent.com/dayvidwang/spectatty/main/assets/htop-tmux.png" width="400" alt="htop via tmux capture-pane" /> | <img src="https://raw.githubusercontent.com/dayvidwang/spectatty/main/assets/opencode-tmux.png" width="400" alt="opencode via tmux capture-pane" /> |
+| <img src="assets/screenshots/htop-tmux.png" width="400" alt="htop via tmux capture-pane" /> | <img src="assets/screenshots/opencode-tmux.png" width="400" alt="opencode via tmux capture-pane" /> |
 
 Meanwhile, this is what the UI actually looks like from a human perspective:
 
 | htop                                                                                                                                  | opencode                                                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| <img src="https://raw.githubusercontent.com/dayvidwang/spectatty/main/assets/htop-mac.png" width="400" alt="htop macOS screenshot" /> | <img src="https://raw.githubusercontent.com/dayvidwang/spectatty/main/assets/opencode-mac.png" width="400" alt="opencode macOS screenshot" /> |
+| <img src="assets/screenshots/htop-mac.png" width="400" alt="htop macOS screenshot" /> | <img src="assets/screenshots/opencode-mac.png" width="400" alt="opencode macOS screenshot" /> |
 
 **What spectatty gives agents:**
 
@@ -30,7 +30,7 @@ Using spectatty, agents can actually render and screenshot the UI as it looks fr
 
 | htop                                                                                                                                     | opencode                                                                                                                                         |
 | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| <img src="https://raw.githubusercontent.com/dayvidwang/spectatty/main/assets/htop-spectatty.png" width="400" alt="htop via spectatty" /> | <img src="https://raw.githubusercontent.com/dayvidwang/spectatty/main/assets/opencode-spectatty.png" width="400" alt="opencode via spectatty" /> |
+| <img src="assets/screenshots/htop-spectatty.png" width="400" alt="htop via spectatty" /> | <img src="assets/screenshots/opencode-spectatty.png" width="400" alt="opencode via spectatty" /> |
 
 ## Additional problems that spectatty solves
 
