@@ -92,7 +92,7 @@ function resolveOptions(options: RenderOptions): ResolvedOptions {
   const padding = options.padding ?? 8
   const theme = options.theme ?? DEFAULT_THEME
   const chrome = options.chrome ?? { enabled: false }
-  const dpr = options.devicePixelRatio ?? 2
+  const dpr = options.devicePixelRatio ?? 1
   return { fontSize, cellWidth, cellHeight, padding, theme, chrome, dpr }
 }
 
@@ -102,9 +102,14 @@ function buildCanvas(grid: CellInfo[][], cols: number, rows: number, opts: Resol
   const logicalWidth  = Math.ceil(cols * opts.cellWidth  + opts.padding * 2)
   const logicalHeight = Math.ceil(rows * opts.cellHeight + opts.padding * 2) + chromeHeight
 
-  const canvas = createCanvas(logicalWidth * dpr, logicalHeight * dpr)
+  const MAX_LONG_EDGE = 2000
+  const rawW = logicalWidth * dpr
+  const rawH = logicalHeight * dpr
+  const maxEdge = Math.max(rawW, rawH)
+  const scale = maxEdge > MAX_LONG_EDGE ? (MAX_LONG_EDGE / maxEdge) * dpr : dpr
+  const canvas = createCanvas(Math.round(logicalWidth * scale), Math.round(logicalHeight * scale))
   const ctx = canvas.getContext("2d")
-  ctx.scale(dpr, dpr)
+  ctx.scale(scale, scale)
 
   // Background
   ctx.fillStyle = opts.theme.bg
