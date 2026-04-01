@@ -404,6 +404,11 @@ async function handleWaitFor({ sessionId, pattern, timeout }: DaemonParams<"term
   const terminal = getSession(sessionId)
   const timeoutMs = timeout ?? 5000
 
+  if (pattern === undefined) {
+    await sleep(timeoutMs)
+    return { matched: false, pattern: undefined, elapsed: timeoutMs }
+  }
+
   if (pattern.length > 500) throw new Error("Pattern too long (max 500 chars)")
 
   let regex: RegExp
@@ -475,12 +480,21 @@ function handleRecordStart({ sessionId, savePath }: DaemonParams<"terminal_recor
   return { ok: true as const, path: savePath }
 }
 
-function handleRecordStop({ sessionId }: DaemonParams<"terminal_record_stop">) {
+async function handleRecordStop({ sessionId }: DaemonParams<"terminal_record_stop">) {
   checkLockBlock(sessionId, "terminal_record_stop")
   const terminal = getSession(sessionId)
   if (!terminal.recording) throw new Error(`Session ${sessionId} is not recording`)
-  terminal.stopRecording()
-  return { ok: true } as const
+  const tapePath = terminal.stopRecording()
+  if (tapePath) {
+    const events = tapeLogs.get(sessionId)
+    if (events && events.length > 0) {
+      const tape = createTapeFile(events)
+      await mkdir(dirname(tapePath), { recursive: true })
+      await writeFile(tapePath, JSON.stringify(tape, null, 2))
+      return { ok: true as const, tapeSavedTo: tapePath }
+    }
+  }
+  return { ok: true as const }
 }
 
 // --- Request dispatcher ---

@@ -64,6 +64,7 @@ export class HeadlessTerminal {
   private _recording = false
   private _recordStart: number = 0
   private _recordFd: number | null = null
+  private _recordingCastPath: string | null = null
   private _dataListeners: Array<(data: string) => void> = []
 
   cols: number
@@ -290,6 +291,7 @@ export class HeadlessTerminal {
     writeSync(this._recordFd, header + "\n")
     this._recordStart = performance.now()
     this._recording = true
+    this._recordingCastPath = savePath
 
     // Capture current screen state as the first frame
     const snapshot = this.serialize.serialize()
@@ -298,12 +300,15 @@ export class HeadlessTerminal {
     }
   }
 
-  stopRecording(): void {
+  stopRecording(): string | null {
     this._recording = false
     if (this._recordFd !== null) {
       closeSync(this._recordFd)
       this._recordFd = null
     }
+    const castPath = this._recordingCastPath
+    this._recordingCastPath = null
+    return castPath ? castPath.replace(/\.cast$/, ".tape.json") : null
   }
 
   kill(signal?: string): void {

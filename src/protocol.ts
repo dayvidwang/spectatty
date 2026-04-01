@@ -42,7 +42,7 @@ const mouseParams       = sessionId.extend({
   y:      z.number(),
   button: z.enum(["left", "middle", "right"]).optional(),
 })
-const waitForParams     = sessionId.extend({ pattern: z.string(), timeout: z.number().optional() })
+const waitForParams     = sessionId.extend({ pattern: z.string().optional(), timeout: z.number().optional() })
 const replayTapeParams  = z.object({
   tapePath:      z.string(),
   sessionId:     z.string().optional(),
@@ -152,7 +152,7 @@ export type DaemonProtocol = {
   terminal_replay_tape:  { params: z.infer<typeof replayTapeParams>;   result: { sessionId: string; cols: number; rows: number; recordingPath?: string } }
   terminal_export_tape:  { params: z.infer<typeof exportTapeParams>;   result: { savedTo: string; events: number } }
   terminal_record_start: { params: z.infer<typeof recordStartParams>;  result: { ok: true; path: string } }
-  terminal_record_stop:  { params: z.infer<typeof recordStopParams>;   result: { ok: true } }
+  terminal_record_stop:  { params: z.infer<typeof recordStopParams>;   result: { ok: true; tapeSavedTo?: string } }
 }
 
 export type DaemonMethod   = keyof DaemonProtocol
