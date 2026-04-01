@@ -248,8 +248,29 @@ const attachCmd = defineCommand({
   },
 })
 
-const replayCmd = defineCommand({
-  meta: { name: "replay", description: "Replay a tape file. Produces a .cast recording by default; use --live to replay into the current terminal and drop into an interactive shell." },
+const replayCastCmd = defineCommand({
+  meta: { name: "replay-cast", description: "Play back an asciicast (.cast) file in the current terminal with original timing" },
+  args: {
+    cast: { type: "positional", description: "Path to a .cast file", required: true },
+    "max-delay": { type: "string", description: "Clamp inter-event delays to this many ms (default: 3000)" },
+  },
+  async run({ args }) {
+    const { parseCastFile } = await import("./cast-parser")
+    const maxDelay = args["max-delay"] ? parseInt(args["max-delay"], 10) : 3000
+    const cast = await parseCastFile(args.cast)
+    const events = cast.events.filter(e => e.type === "o")
+    let prevTime = 0
+    for (const event of events) {
+      const delay = Math.min((event.time - prevTime) * 1000, maxDelay)
+      if (delay > 0) await Bun.sleep(delay)
+      process.stdout.write(event.data)
+      prevTime = event.time
+    }
+  },
+})
+
+const replayTapeTopCmd = defineCommand({
+  meta: { name: "replay-tape", description: "Replay a .tape.json file. Produces a .cast recording by default; use --live to replay into the current terminal and drop into an interactive shell." },
   args: {
     tape: { type: "positional", description: "Path to a .tape.json file", required: true },
     live: { type: "boolean", description: "Replay into the current terminal and drop into an interactive shell instead of recording", default: false },
@@ -634,7 +655,7 @@ const waitForCmd = defineCommand({
 })
 
 const recordStartCmd = defineCommand({
-  meta: { name: "record-start", description: "Start recording a terminal session to a .cast file" },
+  meta: { name: "record-start", description: "Start recording a terminal session to a .cast file (a sidecar .tape.json is saved automatically on record-stop)" },
   args: {
     sessionId: { type: "positional", description: "Session ID", required: true },
     path: { type: "positional", description: "Output .cast file path", required: true },
@@ -742,7 +763,8 @@ const main = defineCommand({
     tail: tailCmd,
     "to-gif": toGifCmd,
     "to-mp4": toMp4Cmd,
-    replay: replayCmd,
+    "replay-cast": replayCastCmd,
+    "replay-tape": replayTapeTopCmd,
   },
 })
 

@@ -82,12 +82,14 @@ The MCP server delegates to a long-running daemon that owns the PTY sessions. Ev
 
 ### Recording
 
-| Tool                    | Description                                                                                                         |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `terminal_record_start` | Start recording terminal output as an [asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/) `.cast` file. |
-| `terminal_record_stop`  | Stop recording and finalize the `.cast` file.                                                                       |
-| `terminal_export_tape`  | Export the session's interaction log as a replayable `.tape.json` file.                                             |
-| `terminal_replay_tape`  | Replay a `.tape.json` into a fresh session and return the live session ID.                                          |
+| Tool                    | Description                                                                                                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `terminal_record_start` | Start recording terminal output as an [asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/) `.cast` file.                                               |
+| `terminal_record_stop`  | Stop recording. Saves the `.cast` file and automatically writes a sidecar `.tape.json` alongside it (same path, `.cast` extension replaced with `.tape.json`).   |
+| `terminal_to_gif`       | Convert a `.cast` recording to an animated GIF (requires `agg`).                                                                                                 |
+| `terminal_to_mp4`       | Convert a `.cast` recording to an MP4 video (requires `ffmpeg`).                                                                                                 |
+| `terminal_export_tape`  | Export the session's interaction log as a replayable `.tape.json` file.                                                                                           |
+| `terminal_replay_tape`  | Replay a `.tape.json` into a fresh session and return the live session ID.                                                                                        |
 
 ## CLI
 
@@ -102,9 +104,10 @@ spectatty <subcommand>
 | `ctl <subcommand>`                 | Control terminal sessions (mirrors all MCP tools - see below)                                 |
 | `attach <sessionId>`               | Attach your terminal to a live session. Uses **Ctrl+A** as a prefix key for control commands - press Ctrl+A then: `d` to detach, `l` to acquire the agent lock (blocks agent writes so you can type freely), `u` to release the lock, `s` to take a screenshot while locked. Send a literal Ctrl+A by pressing Ctrl+A twice. If you get stuck, Ctrl+A then `d` always exits. |
 | `tail <file.cast>`                 | Live-tail an asciicast recording as it's being written                                         |
-| `to-gif <input.cast> <output.gif>` | Convert a recording to an animated GIF (uses `agg` if available, JS fallback otherwise)        |
-| `to-mp4 <input.cast> <output.mp4>` | Convert a recording to MP4 (uses `ffmpeg` if available, WASM fallback otherwise)               |
-| `replay <file.tape.json>`          | Replay a tape file. Produces a `.cast` by default; `--live` replays into the current terminal. |
+| `to-gif <input.cast> <output.gif>`   | Convert a recording to an animated GIF (requires `agg`)                                            |
+| `to-mp4 <input.cast> <output.mp4>`   | Convert a recording to MP4 (requires `ffmpeg`)                                                     |
+| `replay-cast <file.cast>`            | Play back a `.cast` file in the current terminal with original timing                              |
+| `replay-tape <file.tape.json>`       | Replay a tape file. Produces a `.cast` by default; `--live` replays into the current terminal.     |
 
 `spectatty ctl` exposes every MCP tool as a subcommand for scripting and debugging: `spawn`, `list`, `type`, `key`, `ctrl`, `write`, `screenshot`, `resize`, `kill`, `scroll`, `mouse`, `wait-for`, `record-start`, `record-stop`, `export-tape`, `replay-tape`.
 

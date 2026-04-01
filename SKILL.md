@@ -17,19 +17,19 @@ The daemon auto-starts on first use. No setup needed.
 
 ```bash
 # Spawn a shell session
-SESSION=$(spectatty spawn | jq -r .sessionId)
+SESSION=$(spectatty ctl spawn | jq -r .sessionId)
 
 # Run a command
-spectatty type "$SESSION" "echo hello world" --submit
+spectatty ctl type "$SESSION" "echo hello world" --submit
 
 # Wait for it to finish
-spectatty wait-for "$SESSION" "hello world"
+spectatty ctl wait-for "$SESSION" "hello world"
 
 # Check what's on screen
-spectatty screenshot "$SESSION"
+spectatty ctl screenshot "$SESSION"
 
 # Clean up
-spectatty kill "$SESSION"
+spectatty ctl kill "$SESSION"
 ```
 
 ---
@@ -37,10 +37,11 @@ spectatty kill "$SESSION"
 ## Core principles
 
 1. **All output is JSON** — parse with `jq`
-2. **Always screenshot after actions** — use `screenshot` to verify terminal state before continuing
+2. **Always screenshot after actions** — use `screenshot` to verify terminal state before continuing. IMPORTANT: if the user asks to *see* or *show* a screenshot, always use `--save-path` to save it to a file first, then read it back — otherwise the image is only visible internally and the user cannot see it.
 3. **Use `wait-for` instead of sleeping** — it polls at 100ms intervals and returns as soon as the pattern matches
-4. **Session IDs persist until daemon restart** — `term-1`, `term-2`, etc.
-5. **Exit code signals success/failure** — `$?` is 0 on success, non-zero on error; stderr contains `{"error":"..."}`
+4. **Use a subagent for long-running waits** — if you expect a PTY operation to take a significant or variable amount of time (e.g. a build, install, test suite, or long-running process), delegate the wait to a subagent. Have the subagent run `wait-for` (or a polling loop) and return only once the operation completes or fails. This keeps the parent agent's context free and avoids blocking on uncertain durations.
+5. **Session IDs persist until daemon restart** — `term-1`, `term-2`, etc.
+6. **Exit code signals success/failure** — `$?` is 0 on success, non-zero on error; stderr contains `{"error":"..."}`
 
 ---
 
@@ -61,7 +62,7 @@ The daemon runs at `~/.spectatty/daemon.sock`. All sessions are lost when the da
 ### Spawning sessions
 
 ```bash
-spectatty spawn [options]
+spectatty ctl spawn [options]
   --shell <binary>       Shell to use (default: $SHELL or /bin/bash)
   --cols <n>             Terminal width (default: 120)
   --rows <n>             Terminal height (default: 40)
@@ -72,16 +73,16 @@ spectatty spawn [options]
 Output: `{"sessionId":"term-1","cols":120,"rows":40,"attachSocket":"/tmp/..."}`
 
 ```bash
-spectatty list             # List all active sessions
+spectatty ctl list             # List all active sessions
 ```
 
 ### Sending input
 
 ```bash
-spectatty type <sessionId> <text> [--submit]   # Type text; --submit adds Enter
-spectatty key  <sessionId> <key>  [--times N]  # Press a named key
-spectatty ctrl <sessionId> <key>               # Send Ctrl+key (e.g. c, d, z, l)
-spectatty write <sessionId> <data>             # Raw data with escape sequences
+spectatty ctl type <sessionId> <text> [--submit] [--delay <ms>]   # Type text; --submit adds Enter; --delay sets ms between chars (default: 30, use 0 for instant)
+spectatty ctl key  <sessionId> <key>  [--times N]  # Press a named key
+spectatty ctl ctrl <sessionId> <key>               # Send Ctrl+key (e.g. c, d, z, l)
+spectatty ctl write <sessionId> <data>             # Raw data with escape sequences
 ```
 
 Named keys for `key`: `enter`, `backspace`, `delete`, `tab`, `escape`, `space`, `up`, `down`, `left`, `right`, `page_up`, `page_down`, `home`, `end`, `f1`–`f12`
@@ -91,7 +92,7 @@ Common `ctrl` combos: `c` (interrupt), `d` (EOF/exit), `z` (suspend), `l` (clear
 ### Viewing state
 
 ```bash
-spectatty screenshot <sessionId> [options]
+spectatty ctl screenshot <sessionId> [options]
   --format <text|png|both>   Output format (default: text)
   --save-path <file>         Save PNG to this file (required for png/both)
   --viewport-top <n>         Scroll to line N before capturing (for scrollback)
@@ -100,7 +101,7 @@ spectatty screenshot <sessionId> [options]
 Output includes `text` (current viewport as string) and `meta` (totalLines, cursorX, cursorY, viewportTop, isAlternateBuffer, cols, rows).
 
 ```bash
-spectatty wait-for <sessionId> <pattern> [--timeout <ms>]
+spectatty ctl wait-for <sessionId> <pattern> [--timeout <ms>]
 ```
 
 `pattern` is a JavaScript regex. Returns `{"matched":true,"text":"...","index":N}` on match, or `{"matched":false,"error":"..."}` on timeout (exit code 1).
@@ -108,26 +109,26 @@ spectatty wait-for <sessionId> <pattern> [--timeout <ms>]
 ### Resizing and navigation
 
 ```bash
-spectatty resize <sessionId> <cols> <rows>
-spectatty scroll <sessionId> <up|down> [--amount N]   # Default: 5 lines
-spectatty mouse  <sessionId> <action> <x> <y> [--button left|middle|right]
+spectatty ctl resize <sessionId> <cols> <rows>
+spectatty ctl scroll <sessionId> <up|down> [--amount N]   # Default: 5 lines
+spectatty ctl mouse  <sessionId> <action> <x> <y> [--button left|middle|right]
   # action: click, move, down, up
 ```
 
 ### Session cleanup
 
 ```bash
-spectatty kill <sessionId>    # Kill session and free resources
+spectatty ctl kill <sessionId>    # Kill session and free resources
 ```
 
 ### Recording
 
 ```bash
-spectatty record-start <sessionId> <path>   # Begin .cast recording
-spectatty record-stop  <sessionId>          # Stop recording and save
+spectatty ctl record-start <sessionId> <path>   # Begin .cast recording (sidecar .tape.json saved automatically on stop)
+spectatty ctl record-stop  <sessionId>          # Stop recording; saves .cast and .tape.json sidecar
 
-spectatty export-tape  <sessionId> <path>   # Save replayable .tape.json
-spectatty replay-tape  <tapePath> [options] # Replay tape into new session
+spectatty ctl export-tape  <sessionId> <path>   # Save replayable .tape.json
+spectatty ctl replay-tape  <tapePath> [options] # Replay tape into new session
   --session <id>          Tape session to replay (default: first)
   --recording <path>      Record replay to .cast file
   --max-delay <ms>        Clamp timing gaps (default: 3000)
@@ -136,10 +137,10 @@ spectatty replay-tape  <tapePath> [options] # Replay tape into new session
 ### Media export (standalone, no daemon needed)
 
 ```bash
-spectatty to-gif <input.cast> <output.gif>  [--theme dracula] [--chrome] [--title "My Demo"]
-spectatty to-mp4 <input.cast> <output.mp4>  [--fps 30] [--crf 18]
-spectatty tail   <file.cast>                # Live-tail a recording in progress
-spectatty replay <tape.json> [--live]       # Replay tape to .cast or interactive shell
+spectatty to-gif     <input.cast> <output.gif>  [--theme dracula] [--chrome] [--title "My Demo"]
+spectatty to-mp4     <input.cast> <output.mp4>  [--fps 30] [--crf 18]
+spectatty replay-cast  <input.cast>             [--max-delay <ms>]   # Play back .cast in terminal with original timing
+spectatty replay-tape  <tape.json>              [--live] [--output <path>]  # Replay tape to .cast or interactive shell
 ```
 
 ### MCP server (for harness integration)
@@ -162,45 +163,61 @@ spectatty attach <sessionId>   # Attach your real terminal to a live session
 ### Running a command and checking output
 
 ```bash
-SESSION=$(spectatty spawn | jq -r .sessionId)
-spectatty type "$SESSION" "npm test" --submit
-spectatty wait-for "$SESSION" "(PASS|FAIL|Error)" --timeout 60000
-spectatty screenshot "$SESSION"
-spectatty kill "$SESSION"
+SESSION=$(spectatty ctl spawn | jq -r .sessionId)
+spectatty ctl type "$SESSION" "npm test" --submit
+spectatty ctl wait-for "$SESSION" "(PASS|FAIL|Error)" --timeout 60000
+spectatty ctl screenshot "$SESSION"
+spectatty ctl kill "$SESSION"
 ```
 
 ### Navigating a TUI application
 
 ```bash
-SESSION=$(spectatty spawn --shell htop | jq -r .sessionId)
-spectatty wait-for "$SESSION" "PID"          # wait for htop to load
-spectatty key "$SESSION" down --times 3      # navigate down 3 rows
-spectatty screenshot "$SESSION"
-spectatty ctrl "$SESSION" c                  # quit htop
-spectatty kill "$SESSION"
+SESSION=$(spectatty ctl spawn --shell htop | jq -r .sessionId)
+spectatty ctl wait-for "$SESSION" "PID"          # wait for htop to load
+spectatty ctl key "$SESSION" down --times 3      # navigate down 3 rows
+spectatty ctl screenshot "$SESSION"
+spectatty ctl ctrl "$SESSION" c                  # quit htop
+spectatty ctl kill "$SESSION"
 ```
 
 ### Reading scrollback
 
 ```bash
 # Get total lines, then page through scrollback
-RESULT=$(spectatty screenshot "$SESSION")
+RESULT=$(spectatty ctl screenshot "$SESSION")
 TOTAL=$(echo "$RESULT" | jq '.meta.totalLines')
 ROWS=$(echo "$RESULT" | jq '.meta.rows')
 
 # Scroll to beginning
-spectatty screenshot "$SESSION" --viewport-top 0
+spectatty ctl screenshot "$SESSION" --viewport-top 0
 ```
 
 ### Recording a demo
 
 ```bash
-SESSION=$(spectatty spawn --recording /tmp/demo.cast | jq -r .sessionId)
-spectatty type "$SESSION" "echo 'Hello, world!'" --submit
-spectatty wait-for "$SESSION" "Hello"
-spectatty kill "$SESSION"
+SESSION=$(spectatty ctl spawn --recording /tmp/demo.cast | jq -r .sessionId)
+spectatty ctl type "$SESSION" "echo 'Hello, world!'" --submit
+spectatty ctl wait-for "$SESSION" "Hello"
+spectatty ctl kill "$SESSION"
 spectatty to-gif /tmp/demo.cast /tmp/demo.gif --chrome --title "Demo"
 ```
+
+### Waiting for a long-running process (subagent pattern)
+
+When a command may take a significant or variable amount of time, offload the wait to a subagent so the parent agent's context stays free:
+
+```
+Parent agent:
+  1. spawn session, type command, get SESSION id
+  2. launch subagent: "Wait for the build to finish in spectatty session SESSION.
+     Run `spectatty ctl wait-for SESSION '(error|success|\\$)' --timeout 300000`.
+     Return the screenshot output when done."
+  3. continue other work while subagent blocks
+  4. when subagent returns, inspect its result
+```
+
+The subagent blocks on `wait-for` and returns the result to the parent once the operation completes or times out.
 
 ### Debugging — attach your own terminal
 
@@ -216,7 +233,7 @@ spectatty attach term-1
 ## Error handling
 
 ```bash
-spectatty type "$SESSION" "ls" --submit
+spectatty ctl type "$SESSION" "ls" --submit
 if [ $? -ne 0 ]; then
   # stderr has: {"error":"No terminal session with id: term-1"}
   echo "Command failed"
@@ -226,5 +243,5 @@ fi
 `wait-for` exits with code 1 when the pattern times out:
 
 ```bash
-spectatty wait-for "$SESSION" "\\$" --timeout 10000 || echo "Timed out waiting for prompt"
+spectatty ctl wait-for "$SESSION" "\\$" --timeout 10000 || echo "Timed out waiting for prompt"
 ```
