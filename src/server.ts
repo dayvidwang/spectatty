@@ -5,10 +5,17 @@ import { z } from "zod"
 import { ensureDaemon, request } from "./client"
 import type { ScreenshotResult } from "./protocol"
 
-const server = new McpServer({
-  name: "spectatty",
-  version: "0.1.0",
-})
+const server = new McpServer(
+  { name: "spectatty", version: "0.1.0" },
+  {
+    instructions:
+      "Always call terminal_screenshot after actions to verify terminal state before continuing. " +
+      "Use terminal_wait_for instead of sleeping -- it polls at 100ms and returns as soon as the pattern matches. " +
+      "For long-running operations (builds, installs, test suites), delegate the wait to a subagent so the parent context stays free. " +
+      "Kill sessions with terminal_kill when done. " +
+      "To show a screenshot to the user, use the savePath parameter on terminal_screenshot to save it to disk first -- inline images are not visible to the user otherwise.",
+  },
+)
 
 async function call(method: string, params: Record<string, unknown>): Promise<unknown> {
   await ensureDaemon()
@@ -211,10 +218,10 @@ server.tool(
 
 server.tool(
   "terminal_wait_for",
-  "Wait for a regex pattern to appear in the terminal output. Polls the screen text at regular intervals and returns when the pattern matches or timeout is reached.",
+  "Wait for a regex pattern to appear in the terminal output, or simply pause for a fixed duration. If pattern is provided, polls the screen text at regular intervals and returns when the pattern matches or timeout is reached. If pattern is omitted, waits for the full timeout duration and returns.",
   {
     sessionId: z.string().describe("Terminal session ID"),
-    pattern: z.string().describe("Regex pattern to wait for in the terminal text (max 500 chars)"),
+    pattern: z.string().optional().describe("Regex pattern to wait for in the terminal text (max 500 chars). If omitted, waits for the full timeout duration."),
     timeout: z.number().optional().describe("Timeout in milliseconds (default: 5000)"),
   },
   async ({ sessionId, pattern, timeout }) => {
@@ -253,7 +260,7 @@ server.tool(
 
 server.tool(
   "terminal_record_start",
-  "Start recording terminal output as an asciicast v2 recording",
+  "Start recording terminal output as an asciicast v2 (.cast) recording. When stopped, a sidecar .tape.json is automatically saved alongside the .cast file.",
   {
     sessionId: z.string().describe("Terminal session ID"),
     savePath: z.string().describe("File path to save the .cast recording"),
@@ -266,13 +273,76 @@ server.tool(
 
 server.tool(
   "terminal_record_stop",
-  "Stop recording and save the asciicast v2 (.cast) file",
+  "Stop recording and save the asciicast v2 (.cast) file. If a tapePath was set on record-start, also saves the .tape.json automatically.",
   {
     sessionId: z.string().describe("Terminal session ID"),
   },
   async ({ sessionId }) => {
-    await call("terminal_record_stop", { sessionId })
-    return { content: [{ type: "text" as const, text: `Stopped recording ${sessionId}` }] }
+    const result = await call("terminal_record_stop", { sessionId }) as { ok: true; tapeSavedTo?: string }
+    const msg = result.tapeSavedTo
+      ? `Stopped recording ${sessionId}. Tape saved to ${result.tapeSavedTo}`
+      : `Stopped recording ${sessionId}`
+    return { content: [{ type: "text" as const, text: msg }] }
+  },
+)
+
+server.tool(
+  "terminal_to_gif",
+  "Convert an asciicast .cast recording to an animated GIF. Requires `agg` to be installed.",
+  {
+    input: z.string().describe("Path to the input .cast file"),
+    output: z.string().describe("Path to save the output .gif file"),
+    cols: z.number().optional().describe("Override terminal width"),
+    rows: z.number().optional().describe("Override terminal height"),
+    maxDelay: z.number().optional().describe("Clamp long pauses to this many ms (default: 3000)"),
+    theme: z.enum(["default", "dracula", "monokai", "solarized-dark"]).optional().describe("Color theme (default: default)"),
+    chrome: z.boolean().optional().describe("Add macOS-style window chrome"),
+    title: z.string().optional().describe("Window title (implies chrome)"),
+  },
+  async ({ input, output, cols, rows, maxDelay, theme: themeName, chrome, title }) => {
+    const { castToGif } = await import("./to-gif")
+    const { getTheme } = await import("./themes")
+    const chromeEnabled = chrome || !!title
+    await castToGif(input, output, {
+      cols,
+      rows,
+      maxDelay,
+      theme: themeName ? getTheme(themeName) : undefined,
+      chrome: { enabled: chromeEnabled, title },
+    })
+    return { content: [{ type: "text" as const, text: `GIF saved to ${output}` }] }
+  },
+)
+
+server.tool(
+  "terminal_to_mp4",
+  "Convert an asciicast .cast recording to an MP4 video. Requires `ffmpeg` to be installed.",
+  {
+    input: z.string().describe("Path to the input .cast file"),
+    output: z.string().describe("Path to save the output .mp4 file"),
+    cols: z.number().optional().describe("Override terminal width"),
+    rows: z.number().optional().describe("Override terminal height"),
+    maxDelay: z.number().optional().describe("Clamp long pauses to this many ms (default: 3000)"),
+    fps: z.number().optional().describe("Frames per second (default: 30)"),
+    crf: z.number().optional().describe("H.264 CRF quality (default: 18, lower = better, range: 0-51)"),
+    theme: z.enum(["default", "dracula", "monokai", "solarized-dark"]).optional().describe("Color theme (default: default)"),
+    chrome: z.boolean().optional().describe("Add macOS-style window chrome"),
+    title: z.string().optional().describe("Window title (implies chrome)"),
+  },
+  async ({ input, output, cols, rows, maxDelay, fps, crf, theme: themeName, chrome, title }) => {
+    const { castToMp4 } = await import("./to-mp4")
+    const { getTheme } = await import("./themes")
+    const chromeEnabled = chrome || !!title
+    await castToMp4(input, output, {
+      cols,
+      rows,
+      maxDelay,
+      fps,
+      crf,
+      theme: themeName ? getTheme(themeName) : undefined,
+      chrome: { enabled: chromeEnabled, title },
+    })
+    return { content: [{ type: "text" as const, text: `MP4 saved to ${output}` }] }
   },
 )
 
