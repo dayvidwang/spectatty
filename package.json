@@ -1,10 +1,17 @@
 {
   "name": "spectatty",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "MCP server for headless terminal emulation — spawn PTY sessions, send keystrokes, capture screenshots",
   "license": "MIT",
-  "keywords": ["mcp", "terminal", "pty", "headless", "xterm", "model-context-protocol"],
+  "keywords": [
+    "mcp",
+    "terminal",
+    "pty",
+    "headless",
+    "xterm",
+    "model-context-protocol"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dayvidwang/spectatty.git"
