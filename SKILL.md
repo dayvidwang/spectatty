@@ -37,10 +37,11 @@ spectatty ctl kill "$SESSION"
 ## Core principles
 
 1. **All output is JSON** — parse with `jq`
-2. **Always screenshot after actions** — use `screenshot` to verify terminal state before continuing. IMPORTANT: if the user asks to *see* or *show* a screenshot, always use `--save-path` to save it to a file first, then read it back — otherwise the image is only visible internally and the user cannot see it.
-3. **Use `wait-for` instead of sleeping** — it polls at 100ms intervals and returns as soon as the pattern matches
-4. **Use a subagent for long-running waits** — if you expect a PTY operation to take a significant or variable amount of time (e.g. a build, install, test suite, or long-running process), delegate the wait to a subagent. Have the subagent run `wait-for` (or a polling loop) and return only once the operation completes or fails. This keeps the parent agent's context free and avoids blocking on uncertain durations.
-5. **Session IDs persist until daemon restart** — `term-1`, `term-2`, etc.
+2. **Always screenshot after actions** - use `screenshot` to verify terminal state before continuing. IMPORTANT: if the user asks to _see_ or _show_ a screenshot, always use `--save-path` to save it to a file first, then read it back — otherwise the image is only visible internally and the user cannot see it.
+3. **Use `wait-for` instead of sleeping** - it polls at 100ms intervals and returns as soon as the pattern matches. However the pattern is not 100% reliable, start off with a short timeout and increase it gradually if the process is still not done. You can use wait-for to tell you when a process is potentially done earlier than expected, but if wait-for times out, the process may already be done, the pattern is just not a good match. In general.
+4. **Use a subagent for uncertain waits** — if you expect a PTY operation to take a significant or variable amount of time (e.g. a build, install, test suite, or long-running process), delegate the wait to a subagent. Have the subagent run `wait-for` (or a polling loop) and return only once the operation completes or fails. This keeps the parent agent's context free and avoids blocking on uncertain durations. This subagent should start with a small timeout and can do backoff if the process is still not done.
+5. **Reuse existing terminals when possible** — if a terminal session is already open and suitable, reuse it rather than spawning a new one. Only spawn a new session when isolation is needed (e.g. different cwd, clean environment, parallel work, or recording).
+6. **Session IDs persist until daemon restart** — `term-1`, `term-2`, etc.
 6. **Exit code signals success/failure** — `$?` is 0 on success, non-zero on error; stderr contains `{"error":"..."}`
 
 ---
