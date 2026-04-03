@@ -27,14 +27,15 @@ export async function* streamFrames(cast: Cast, opts: FrameGenOptions = {}): Asy
   const maxDelay = opts.maxDelay ?? 3000
 
   const terminal = new HeadlessTerminal({ cols, rows })
-  let prevTime = 0
+  const outputEvents = cast.events.filter((e) => e.type === "o")
 
   try {
-    for (const event of cast.events.filter((e) => e.type === "o")) {
+    for (let i = 0; i < outputEvents.length; i++) {
+      const event = outputEvents[i]
       await terminal.injectData(event.data)
-      const rawDelay = (event.time - prevTime) * 1000
+      const nextEvent = outputEvents[i + 1]
+      const rawDelay = nextEvent ? (nextEvent.time - event.time) * 1000 : 1000
       const delay = Math.min(Math.max(rawDelay, 10), maxDelay)
-      prevTime = event.time
       const grid = terminal.getCellGrid(opts.theme)
       yield { ...renderToRgba(grid, cols, rows, opts), delay }
     }
@@ -54,16 +55,16 @@ export async function generateFrames(cast: Cast, opts: FrameGenOptions = {}): Pr
 
   const terminal = new HeadlessTerminal({ cols, rows })
   const frames: Frame[] = []
-  let prevTime = 0
 
   const outputEvents = cast.events.filter((e) => e.type === "o")
 
-  for (const event of outputEvents) {
+  for (let i = 0; i < outputEvents.length; i++) {
+    const event = outputEvents[i]
     await terminal.injectData(event.data)
 
-    const rawDelay = (event.time - prevTime) * 1000
+    const nextEvent = outputEvents[i + 1]
+    const rawDelay = nextEvent ? (nextEvent.time - event.time) * 1000 : 1000
     const delay = Math.min(Math.max(rawDelay, 10), maxDelay)
-    prevTime = event.time
 
     const grid = terminal.getCellGrid(opts.theme)
     const frame = renderToRgba(grid, cols, rows, opts)
