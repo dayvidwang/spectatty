@@ -188,12 +188,12 @@ export class HeadlessTerminal {
               char: cell.getChars() || " ",
               fg: this.resolveColor(cell, "fg", theme),
               bg: this.resolveColor(cell, "bg", theme),
-              bold: cell.isBold() === 1,
-              italic: cell.isItalic() === 1,
-              dim: cell.isDim() === 1,
-              underline: cell.isUnderline() === 1,
-              strikethrough: cell.isStrikethrough() === 1,
-              inverse: cell.isInverse() === 1,
+              bold: cell.isBold() !== 0,
+              italic: cell.isItalic() !== 0,
+              dim: cell.isDim() !== 0,
+              underline: cell.isUnderline() !== 0,
+              strikethrough: cell.isStrikethrough() !== 0,
+              inverse: cell.isInverse() !== 0,
             })
           }
         }
