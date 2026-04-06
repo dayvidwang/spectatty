@@ -40,10 +40,10 @@
     "src/daemon.ts",
     "src/client.ts",
     "src/key-sequences.ts",
-    "assets/JetBrainsMono-Regular.ttf",
-    "assets/JetBrainsMono-Bold.ttf",
-    "assets/JetBrainsMono-Italic.ttf",
-    "assets/JetBrainsMono-BoldItalic.ttf",
+    "assets/fonts/JetBrainsMono-Regular.ttf",
+    "assets/fonts/JetBrainsMono-Bold.ttf",
+    "assets/fonts/JetBrainsMono-Italic.ttf",
+    "assets/fonts/JetBrainsMono-BoldItalic.ttf",
     "README.md"
   ],
   "scripts": {
