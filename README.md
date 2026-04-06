@@ -43,13 +43,9 @@ https://github.com/user-attachments/assets/0a76b7f6-4b0a-4bf3-a650-4cd0517cc7a1
 
 The before and after MP4s the agent produced:
 
-**Before**
-
-https://github.com/user-attachments/assets/71a06443-0b9a-4b52-8c0e-d4df81d3e349
-
-**After**
-
-https://github.com/user-attachments/assets/8a245e61-5869-40ba-adb7-874bfeccff7b
+| Before | After |
+| ------ | ----- |
+| <video src="https://github.com/user-attachments/assets/71a06443-0b9a-4b52-8c0e-d4df81d3e349" controls></video> | <video src="https://github.com/user-attachments/assets/8a245e61-5869-40ba-adb7-874bfeccff7b" controls></video> |
 
 ## Additional problems that spectatty solves
 
