@@ -4,6 +4,19 @@ A toolkit for building TUI applications with AI agents. Agents can spawn real te
 
 Exposed as an [MCP server](https://modelcontextprotocol.io) (and CLI) so any MCP-capable agent can use it out of the box.
 
+## Demo
+
+**Prompt given to the agent:**
+> My CLI currently shows dim and not dim text for thinking and non-thinking output. Please change this to use blue for thinking and green for text instead. Record a before and after mp4 showing the full scope of the changes.
+
+https://github.com/user-attachments/assets/0a76b7f6-4b0a-4bf3-a650-4cd0517cc7a1
+
+**Before and after (recorded by the agent):**
+
+https://github.com/user-attachments/assets/71a06443-0b9a-4b52-8c0e-d4df81d3e349
+
+https://github.com/user-attachments/assets/8a245e61-5869-40ba-adb7-874bfeccff7b
+
 ## The problem
 
 Nowadays, everyone is building a terminal application with AI (myself included), but it's very common to get stuck in a loop of: prompt for changes -> test the UI manually -> tell the agent what's wrong -> repeat. The agent is essentially flying blind.
