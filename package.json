@@ -49,7 +49,8 @@
   "scripts": {
     "start": "bun src/cli.ts mcp",
     "dev": "bun --watch src/cli.ts mcp",
-    "test": "bun vitest run"
+    "test": "bun vitest run",
+    "build": "bun build src/cli.ts --compile --outfile spectatty"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
