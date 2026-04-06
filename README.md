@@ -37,13 +37,15 @@ Using spectatty, agents can actually render and screenshot the UI as it looks fr
 **Prompt given to the agent:**
 > My CLI currently shows dim and not dim text for thinking and non-thinking output. Please change this to use blue for thinking and green for text instead. Record a before and after mp4 showing the full scope of the changes.
 
+The agent makes the code changes, then autonomously records before and after MP4s to show the result. In the video below, the left terminal is the agent working in Claude Code. The right terminal is a live view of the agent's spectatty session via `spectatty attach` -- all the typing there is done by the agent, not the user.
+
 https://github.com/user-attachments/assets/0a76b7f6-4b0a-4bf3-a650-4cd0517cc7a1
 
-**Before and after (recorded by the agent):**
+The before and after MP4s the agent produced:
 
-https://github.com/user-attachments/assets/71a06443-0b9a-4b52-8c0e-d4df81d3e349
-
-https://github.com/user-attachments/assets/8a245e61-5869-40ba-adb7-874bfeccff7b
+| Before | After |
+| ------ | ----- |
+| https://github.com/user-attachments/assets/71a06443-0b9a-4b52-8c0e-d4df81d3e349 | https://github.com/user-attachments/assets/8a245e61-5869-40ba-adb7-874bfeccff7b |
 
 ## Additional problems that spectatty solves
 
