@@ -105,7 +105,12 @@ Output includes `text` (current viewport as string) and `meta` (totalLines, curs
 spectatty ctl wait-for <sessionId> <pattern> [--timeout <ms>]
 ```
 
-`pattern` is a JavaScript regex. Returns `{"matched":true,"text":"...","index":N}` on match, or `{"matched":false,"error":"..."}` on timeout (exit code 1).
+`pattern` is a JavaScript regex matched against the full screen text (lines joined with `\n`). Returns `{"matched":true,"text":"...","index":N}` on match, or `{"matched":false,"error":"..."}` on timeout (exit code 1).
+
+> **IMPORTANT -- `^` does not work as a line anchor.** The pattern is matched against the entire screen as one string. `^` and `$` only match the very start/end of the whole string, not individual lines. To match something at the start of a line, use `\n` as the prefix:
+> - `\n>` not `^>` for a `>` prompt
+> - `\n$` not `^\$` for a shell `$` prompt
+> - `\nError` not `^Error` for a line starting with Error
 
 ### Resizing and navigation
 

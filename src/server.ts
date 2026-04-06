@@ -11,6 +11,7 @@ const server = new McpServer(
     instructions:
       "Always call terminal_screenshot after actions to verify terminal state before continuing. " +
       "Use terminal_wait_for instead of sleeping -- it polls at 100ms and returns as soon as the pattern matches. " +
+      "Regex tip: terminal_wait_for matches against the full screen text joined with \\n, so ^ and $ only anchor to the very start/end of the whole string -- use \\n> instead of ^> to match a prompt at the start of a line. " +
       "For long-running operations (builds, installs, test suites), delegate the wait to a subagent so the parent context stays free. " +
       "Kill sessions with terminal_kill when done. " +
       "To show a screenshot to the user, use the savePath parameter on terminal_screenshot to save it to disk first -- inline images are not visible to the user otherwise.",
