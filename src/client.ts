@@ -10,7 +10,7 @@ import { homedir } from "os"
 import { fileURLToPath } from "url"
 import { dirname } from "path"
 
-export const DAEMON_DIR = resolve(homedir(), ".spectatty")
+export const DAEMON_DIR = resolve(process.env.SPECTATTY_DIR ?? resolve(homedir(), ".spectatty"))
 export const SOCKET_PATH = resolve(DAEMON_DIR, "daemon.sock")
 export const PID_PATH = resolve(DAEMON_DIR, "daemon.pid")
 

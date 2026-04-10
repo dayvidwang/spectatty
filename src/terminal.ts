@@ -66,6 +66,7 @@ export class HeadlessTerminal {
   private _recordFd: number | null = null
   private _recordingCastPath: string | null = null
   private _dataListeners: Array<(data: string) => void> = []
+  private _sgrMouseEncoding = false
 
   cols: number
   rows: number
@@ -107,6 +108,9 @@ export class HeadlessTerminal {
         const elapsed = (performance.now() - this._recordStart) / 1000
         writeSync(this._recordFd, JSON.stringify([elapsed, "o", data]) + "\n")
       }
+      // Track whether the app enabled SGR mouse encoding (?1006h/l)
+      if (data.includes("\x1b[?1006h")) this._sgrMouseEncoding = true
+      if (data.includes("\x1b[?1006l")) this._sgrMouseEncoding = false
       this.xterm.write(data)
       for (const listener of this._dataListeners) listener(data)
     })
@@ -256,6 +260,7 @@ export class HeadlessTerminal {
     cursorY: number
     viewportTop: number
     isAlternateBuffer: boolean
+    mouseTrackingMode: string
   } {
     const buf = this.xterm.buffer.active
     return {
@@ -264,7 +269,17 @@ export class HeadlessTerminal {
       cursorY: buf.cursorY,
       viewportTop: buf.viewportY,
       isAlternateBuffer: this.xterm.buffer.active.type === "alternate",
+      mouseTrackingMode: this.xterm.modes.mouseTrackingMode,
+      sgrMouseEncoding: this._sgrMouseEncoding,
     }
+  }
+
+  get mouseTrackingMode(): string {
+    return this.xterm.modes.mouseTrackingMode
+  }
+
+  get sgrMouseEncoding(): boolean {
+    return this._sgrMouseEncoding
   }
 
   scrollToBottom(): void {

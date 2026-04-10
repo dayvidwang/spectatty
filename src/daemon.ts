@@ -19,12 +19,12 @@ import type { DaemonParams, DaemonResult, ScreenshotResult, UserActivity, UserEv
 import { PARAM_SCHEMAS, type DaemonMethod } from "./protocol"
 import { type ZodType } from "zod"
 import { writeFile, mkdir, unlink } from "fs/promises"
-import { unlinkSync, readdirSync } from "fs"
+import { unlinkSync, readdirSync, existsSync } from "fs"
 import { dirname, resolve } from "path"
 import { homedir } from "os"
 import { createServer as createNetServer, type Server as NetServer, type Socket as NetSocket } from "net"
 
-export const DAEMON_DIR = resolve(homedir(), ".spectatty")
+export const DAEMON_DIR = resolve(process.env.SPECTATTY_DIR ?? resolve(homedir(), ".spectatty"))
 export const SOCKET_PATH = resolve(DAEMON_DIR, "daemon.sock")
 export const PID_PATH = resolve(DAEMON_DIR, "daemon.pid")
 
@@ -180,7 +180,7 @@ async function handleSpawn({ shell, args, cols, rows, cwd, env, recordingPath }:
     sessionCleanup.delete(id)
     lockStates.delete(id)
     unsubscribeOnData()
-    terminal.destroy()
+    try { terminal.destroy() } catch {}
     sessions.delete(id)
     tapeLogs.delete(id)
     const attach = attachServers.get(id)
@@ -298,6 +298,8 @@ async function handleScreenshot({ sessionId, format, savePath, viewportTop }: Da
     cursorY: raw.cursorY,
     viewportTop: raw.viewportTop,
     isAlternateBuffer: raw.isAlternateBuffer,
+    mouseTrackingMode: raw.mouseTrackingMode,
+    sgrMouseEncoding: raw.sgrMouseEncoding,
     cols: terminal.cols,
     rows: terminal.rows,
   }
@@ -351,15 +353,26 @@ function handleKill({ sessionId }: DaemonParams<"terminal_kill">) {
 }
 
 function handleList() {
-  const list = Array.from(sessions.entries()).map(([id, term]) => ({
-    id,
-    cols: term.cols,
-    rows: term.rows,
-    exited: term.exited,
-    exitCode: term.exitCode,
-    attachSocket: socketPathForSession(id),
-    ctrlSocket: controlSocketPathForSession(id),
-  }))
+  const list = Array.from(sessions.entries()).flatMap(([id, term]) => {
+    const attachSocket = socketPathForSession(id)
+    // Skip ghost sessions whose attach socket no longer exists
+    if (!existsSync(attachSocket)) {
+      sessions.delete(id)
+      sessionCleanup.delete(id)
+      lockStates.delete(id)
+      tapeLogs.delete(id)
+      return []
+    }
+    return [{
+      id,
+      cols: term.cols,
+      rows: term.rows,
+      exited: term.exited,
+      exitCode: term.exitCode,
+      attachSocket,
+      ctrlSocket: controlSocketPathForSession(id),
+    }]
+  })
   return { sessions: list }
 }
 
@@ -367,15 +380,43 @@ async function handleScroll({ sessionId, direction, amount }: DaemonParams<"term
   checkLockBlock(sessionId, "terminal_send_scroll")
   const terminal = getSession(sessionId)
   const lines = amount ?? 5
-  for (let i = 0; i < lines; i++) {
-    const button = direction === "up" ? 65 : 64
-    terminal.write(`\x1b[<${button};1;1M`)
-    terminal.write(`\x1b[<${button};1;1m`)
+
+  if (terminal.mouseTrackingMode !== "none") {
+    // App has mouse tracking enabled, send SGR mouse scroll sequences
+    for (let i = 0; i < lines; i++) {
+      const button = direction === "up" ? 65 : 64
+      terminal.write(`\x1b[<${button};1;1M`)
+      terminal.write(`\x1b[<${button};1;1m`)
+    }
+  } else {
+    // No mouse tracking -- fall back to arrow keys (one per line)
+    // or page keys for larger amounts
+    const key = direction === "up" ? "\x1b[5~" : "\x1b[6~" // PgUp / PgDn
+    const perPage = terminal.rows - 1
+    const pages = Math.ceil(lines / perPage)
+    for (let i = 0; i < pages; i++) {
+      terminal.write(key)
+    }
   }
+
   await sleep(100)
   await terminal.flush()
   const meta = terminal.getBufferMeta()
   return { scrolled: `${direction} ${lines} lines`, ...meta, cols: terminal.cols, rows: terminal.rows }
+}
+
+function mouseSeq(terminal: ReturnType<typeof getSession>, buttonCode: number, col: number, row: number, press: boolean): string {
+  if (terminal.sgrMouseEncoding) {
+    // SGR encoding: CSI < Pb ; Px ; Py M/m
+    return `\x1b[<${buttonCode};${col};${row}${press ? "M" : "m"}`
+  } else {
+    // VT200 default encoding: CSI M Cb Cx Cy (1-byte each, +32 offset)
+    // Clamp to 223 max (255-32) to avoid invalid bytes
+    const cb = String.fromCharCode(Math.min(buttonCode + (press ? 0 : 3) + 32, 255))
+    const cx = String.fromCharCode(Math.min(col + 32, 255))
+    const cy = String.fromCharCode(Math.min(row + 32, 255))
+    return `\x1b[M${cb}${cx}${cy}`
+  }
 }
 
 async function handleMouse({ sessionId, action, x, y, button }: DaemonParams<"terminal_mouse">) {
@@ -385,14 +426,14 @@ async function handleMouse({ sessionId, action, x, y, button }: DaemonParams<"te
   const col = Math.max(1, Math.round(x))
   const row = Math.max(1, Math.round(y))
   if (action === "click") {
-    terminal.write(`\x1b[<${buttonCode};${col};${row}M`)
-    terminal.write(`\x1b[<${buttonCode};${col};${row}m`)
+    terminal.write(mouseSeq(terminal, buttonCode, col, row, true))
+    terminal.write(mouseSeq(terminal, buttonCode, col, row, false))
   } else if (action === "down") {
-    terminal.write(`\x1b[<${buttonCode};${col};${row}M`)
+    terminal.write(mouseSeq(terminal, buttonCode, col, row, true))
   } else if (action === "up") {
-    terminal.write(`\x1b[<${buttonCode};${col};${row}m`)
+    terminal.write(mouseSeq(terminal, buttonCode, col, row, false))
   } else if (action === "move") {
-    terminal.write(`\x1b[<${buttonCode};${col};${row}M`)
+    terminal.write(mouseSeq(terminal, buttonCode, col, row, true))
   }
   await sleep(100)
   await terminal.flush()
@@ -451,7 +492,7 @@ async function handleReplayTape({ tapePath, sessionId, recordingPath, maxDelay }
     cleanedUp = true
     sessionCleanup.delete(id)
     lockStates.delete(id)
-    terminal.destroy()
+    try { terminal.destroy() } catch {}
     sessions.delete(id)
     tapeLogs.delete(id)
   }
@@ -597,7 +638,7 @@ function cleanupStaleSockets() {
     files = readdirSync("/tmp").filter(f => /^spectatty-\d+-/.test(f))
   } catch { return }
   for (const f of files) {
-    const pid = parseInt(f.split("-")[2], 10)
+    const pid = parseInt(f.split("-")[1], 10)
     if (pid === DAEMON_PID) continue
     try { process.kill(pid, 0) } catch { unlinkSync(`/tmp/${f}`) }
   }

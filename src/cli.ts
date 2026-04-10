@@ -173,10 +173,20 @@ const attachCmd = defineCommand({
             isLocked = true
             screenshotCount = 0
             setTitle("LOCKED | 0 screenshots")
+            // Enable mouse capture on the local terminal so mouse events are forwarded
+            process.stdout.write(
+              "\x1b[?1003h" + // enable all-motion mouse tracking
+              "\x1b[?1006h"   // enable SGR mouse encoding
+            )
           } else if (b === 0x75) { // 'u' - release lock
             ctrlSocket.write(JSON.stringify({ type: "unlock" }) + "\n")
             isLocked = false
             setTitle("read-only")
+            // Disable mouse capture on the local terminal
+            process.stdout.write(
+              "\x1b[?1003l" +
+              "\x1b[?1006l"
+            )
           } else if (b === 0x73) { // 's' - snapshot screenshot
             ctrlSocket.write(JSON.stringify({ type: "screenshot" }) + "\n")
             screenshotCount++
@@ -318,7 +328,7 @@ const serverStartCmd = defineCommand({
     const { fileURLToPath } = await import("url")
     const { mkdir } = await import("fs/promises")
     const { homedir } = await import("os")
-    const daemonDir = resolvePath(homedir(), ".spectatty")
+    const daemonDir = process.env.SPECTATTY_DIR ?? resolvePath(homedir(), ".spectatty")
     await mkdir(daemonDir, { recursive: true })
 
     const daemonPath = resolvePath(resolvePath(fileURLToPath(import.meta.url), ".."), "daemon.ts")
