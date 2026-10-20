@@ -9,7 +9,6 @@
  */
 
 import { HeadlessTerminal } from "./terminal"
-import { renderToPng } from "./renderer"
 import { getTheme } from "./themes"
 import { sleep } from "./runtime"
 import { createTapeFile, replayTapeToSession } from "./tape"
@@ -23,6 +22,14 @@ import { unlinkSync, readdirSync, existsSync } from "fs"
 import { dirname, resolve } from "path"
 import { homedir } from "os"
 import { createServer as createNetServer, type Server as NetServer, type Socket as NetSocket } from "net"
+
+// `./renderer` pulls in @napi-rs/canvas, which takes ~1.5s to load and is only
+// needed when an image is actually produced. A module-scope import put that cost
+// on the daemon startup path, and the daemon must reach socket-ready within the
+// client's waitForSocket() budget (3s) or `ensureDaemon()` reports a failed
+// start. Load it on first use instead.
+let rendererModule: Promise<typeof import("./renderer")> | undefined
+const loadRenderer = () => (rendererModule ??= import("./renderer"))
 
 export const DAEMON_DIR = resolve(process.env.SPECTATTY_DIR ?? resolve(homedir(), ".spectatty"))
 export const SOCKET_PATH = resolve(DAEMON_DIR, "daemon.sock")
@@ -134,7 +141,7 @@ async function handleSpawn({ shell, args, cols, rows, cwd, env, recordingPath }:
   await unlink(ctrlPath).catch(() => {})
   const ctrlServer = createNetServer((client) => {
     let lineBuf = ""
-    client.on("data", (data: Buffer) => {
+    client.on("data", async (data: Buffer) => {
       lineBuf += data.toString("utf8")
       const lines = lineBuf.split("\n")
       lineBuf = lines.pop()!
@@ -161,6 +168,7 @@ async function handleSpawn({ shell, args, cols, rows, cwd, env, recordingPath }:
           } else if (msg.type === "screenshot") {
             if (ls?.locked) {
               terminal.scrollToBottom()
+              const { renderToPng } = await loadRenderer()
               const png = renderToPng(terminal.getCellGrid(), terminal.cols, terminal.rows)
               ls.events.push({ type: "screenshot", png: png.toString("base64"), t: Date.now() })
             }
@@ -309,6 +317,7 @@ async function handleScreenshot({ sessionId, format, savePath, viewportTop }: Da
   let pngBase64: string | undefined
   let savedTo: string | undefined
   if (fmt === "png" || fmt === "both") {
+    const { renderToPng } = await loadRenderer()
     const png = renderToPng(terminal.getCellGrid(), terminal.cols, terminal.rows)
     if (savePath) {
       await mkdir(dirname(savePath), { recursive: true })
@@ -661,6 +670,12 @@ export async function startDaemon(): Promise<void> {
   server.listen(SOCKET_PATH, () => {
     process.stderr.write(`spectatty daemon started (pid ${DAEMON_PID})\n`)
     process.stderr.write(`Socket: ${SOCKET_PATH}\n`)
+    // Warm the renderer in the background now that the socket is accepting
+    // connections. It pulls in @napi-rs/canvas (~1.5s cold), which is why it is
+    // not imported at module scope: the socket must become ready inside the
+    // client's waitForSocket() budget. Kicking it off here means the first
+    // screenshot does not pay that cost either.
+    void loadRenderer().catch(() => {})
   })
 
   process.on("exit", cleanupAll)
